@@ -6,7 +6,7 @@
 
 const FinanceAI = (() => {
   const API_URL = 'https://api.openai.com/v1/chat/completions';
-  const MODEL = 'gpt-4.1-mini';
+  const MODEL = 'gpt-4o-mini';
 
   const DEFAULT_TYPE = 'expense';
   const ALLOWED_TYPES = ['expense', 'income'];
