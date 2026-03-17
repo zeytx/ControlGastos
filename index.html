@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Control financiero local para iPhone y GitHub Pages, con datos en el dispositivo y apoyo opcional de IA.">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Finanzas Locales">
+  <title>Finanzas Locales</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-block">
+        <div class="brand-mark">S/</div>
+        <div>
+          <p class="eyebrow">Finanzas locales</p>
+          <h1>Tu app que no es app</h1>
+          <p class="subtitle" id="header-subtitle">Todo queda en este dispositivo, excepto la IA cuando tu la usas.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-button" id="btn-open-actions" aria-label="Agregar">
+          <span>+</span>
+        </button>
+        <button class="icon-button" id="btn-open-settings" aria-label="Ajustes">
+          <span>o</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <section class="install-card hidden" id="install-card">
+        <div>
+          <p class="install-title">Instalala antes de cargar muchos datos</p>
+          <p class="install-text" id="install-copy"></p>
+        </div>
+        <div class="install-actions">
+          <button class="btn-secondary" id="btn-install-dismiss">Entendido</button>
+        </div>
+      </section>
+
+      <section class="hero-card">
+        <div class="hero-top">
+          <div>
+            <p class="eyebrow">Resumen del ciclo</p>
+            <h2 id="cycle-label">Ciclo sin configurar</h2>
+            <p class="subtitle" id="cycle-subtitle">Configura tu sueldo principal para empezar a trabajar por ciclos.</p>
+          </div>
+          <div class="month-switcher">
+            <button class="icon-button small" id="btn-prev-cycle" aria-label="Ciclo anterior"><</button>
+            <button class="icon-button small" id="btn-next-cycle" aria-label="Ciclo siguiente">></button>
+          </div>
+        </div>
+
+        <div class="cycle-history-bar">
+          <label class="cycle-history-label" for="cycle-history-select">Historial por sueldo</label>
+          <select id="cycle-history-select" aria-label="Seleccionar ciclo por sueldo">
+            <option value="">Sin ciclos aun</option>
+          </select>
+        </div>
+
+        <div class="hero-stats">
+          <article class="hero-stat stat-income">
+            <span class="stat-label">Ingresos</span>
+            <strong id="summary-income">S/ 0.00</strong>
+          </article>
+          <article class="hero-stat stat-expense">
+            <span class="stat-label">Salidas cash</span>
+            <strong id="summary-cash-spend">S/ 0.00</strong>
+          </article>
+          <article class="hero-stat stat-count">
+            <span class="stat-label">Tarjetas a cubrir</span>
+            <strong id="summary-card-assigned">S/ 0.00</strong>
+          </article>
+          <article class="hero-stat stat-net">
+            <span class="stat-label">Libre neto</span>
+            <strong id="summary-free">S/ 0.00</strong>
+          </article>
+        </div>
+
+        <div class="budget-card">
+          <div class="budget-copy">
+            <span class="budget-title">Lectura del ciclo</span>
+            <span class="budget-meta" id="cycle-meta">Sin sueldo principal configurado</span>
+          </div>
+          <div class="chips-row" id="cycle-chips"></div>
+          <p class="budget-note" id="cycle-note">Cuando llegue el siguiente sueldo, el sobrante libre de este ciclo se podra mover automaticamente a ahorro.</p>
+        </div>
+      </section>
+
+      <section class="section-block premium-dashboard">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Panel</p>
+            <h3>Dashboard del ciclo</h3>
+          </div>
+          <span class="section-pill" id="dashboard-pill">Sin lectura</span>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="dashboard-card spotlight-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Balance visual</p>
+                <h4>Dinero libre vs comprometido</h4>
+              </div>
+            </div>
+            <div class="donut-shell" id="balance-donut"></div>
+            <div class="metric-legend" id="balance-legend"></div>
+          </article>
+
+          <article class="dashboard-card insights-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Panel rapido</p>
+                <h4>Lo que viene</h4>
+              </div>
+            </div>
+            <div class="insight-list" id="insights-list"></div>
+            <div class="coverage-stack">
+              <div class="coverage-head">
+                <strong>Cobertura de tarjetas</strong>
+                <span id="coverage-badge" class="chip">Sin datos</span>
+              </div>
+              <div class="progress-track compact-track">
+                <div class="progress-fill coverage-fill" id="coverage-fill" style="width: 0%"></div>
+              </div>
+              <p class="budget-note" id="coverage-note">Cuando haya estados de cuenta asignados a este sueldo apareceran aqui.</p>
+            </div>
+          </article>
+
+          <article class="dashboard-card breakdown-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Categorias</p>
+                <h4>Donde se va el dinero</h4>
+              </div>
+            </div>
+            <div class="breakdown-list" id="category-breakdown"></div>
+          </article>
+
+          <article class="dashboard-card trend-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Ritmo</p>
+                <h4>Tendencia del ciclo</h4>
+              </div>
+            </div>
+            <div class="trend-chart" id="cycle-trend-chart"></div>
+            <div class="trend-summary" id="trend-summary"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="alerts-card">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Pendientes</p>
+            <h3>Alertas del ciclo</h3>
+          </div>
+        </div>
+        <div class="alerts-list" id="alerts-list"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Motor del ciclo</p>
+            <h3>Configuracion activa</h3>
+          </div>
+          <button class="btn-secondary" id="btn-open-cycle-settings">Editar</button>
+        </div>
+        <div class="detail-stack" id="cycle-config-preview"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Patrimonio</p>
+            <h3>Cuentas</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-account">Nueva cuenta</button>
+        </div>
+        <div class="cards-grid" id="accounts-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Tarjetas</p>
+            <h3>Corte y pago</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-card">Nueva tarjeta</button>
+        </div>
+        <div class="cards-grid" id="cards-summary-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Ahorro</p>
+            <h3>Metas</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-goal">Nueva meta</button>
+        </div>
+        <div class="cards-grid" id="goals-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Obligaciones</p>
+            <h3>Deudas no tarjeta</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-debt">Nueva deuda</button>
+        </div>
+        <div class="cards-grid" id="debts-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Automatico</p>
+            <h3>Recurrentes</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-recurring">Nuevo recurrente</button>
+        </div>
+        <div class="cards-grid compact-grid" id="recurring-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Agenda</p>
+            <h3>Fechas clave</h3>
+          </div>
+        </div>
+        <div class="list-stack" id="agenda-list"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Explorar</p>
+            <h3>Movimientos del ciclo</h3>
+          </div>
+          <span class="section-pill" id="transactions-count-pill">0 resultados</span>
+        </div>
+
+        <div class="filters-card">
+          <div class="quick-filter-row" id="quick-filter-row">
+            <button class="filter-pill active" data-quick-filter="all">Todo</button>
+            <button class="filter-pill" data-quick-filter="expense">Cash</button>
+            <button class="filter-pill" data-quick-filter="card_charge">Tarjeta</button>
+            <button class="filter-pill" data-quick-filter="income">Ingresos</button>
+            <button class="filter-pill" data-quick-filter="card_payment">Pagos</button>
+          </div>
+          <label class="field">
+            <span>Buscar</span>
+            <input type="search" id="filter-search" placeholder="Concepto, nota o palabra clave">
+          </label>
+          <div class="filters-grid">
+            <label class="field">
+              <span>Tipo</span>
+              <select id="filter-type">
+                <option value="all">Todos</option>
+                <option value="expense">Gasto</option>
+                <option value="income">Ingreso</option>
+                <option value="transfer">Transferencia</option>
+                <option value="card_charge">Compra tarjeta</option>
+                <option value="card_payment">Pago tarjeta</option>
+                <option value="debt_payment">Pago deuda</option>
+                <option value="goal_contribution">Aporte meta</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Cuenta</span>
+              <select id="filter-account">
+                <option value="all">Todas</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Tarjeta</span>
+              <select id="filter-card">
+                <option value="all">Todas</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Categoria</span>
+              <select id="filter-category">
+                <option value="all">Todas</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="list-stack" id="transactions-list"></div>
+        <div class="empty-state hidden" id="transactions-empty">
+          <div class="empty-icon">[]</div>
+          <h3>Aun no hay movimientos para este ciclo</h3>
+          <p>Agrega gastos, ingresos, compras con tarjeta o usa la IA para crear un borrador revisable.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <button class="fab" id="fab-add" aria-label="Agregar movimiento">+</button>
+
+  <div class="modal-overlay" id="modal-actions">
+    <div class="modal-sheet action-sheet">
+      <div class="modal-handle"></div>
+      <h2>Agregar algo nuevo</h2>
+      <div class="action-list">
+        <button class="action-row" id="action-add-transaction">
+          <strong>Movimiento manual</strong>
+          <span>Gasto, ingreso, transferencia, compra o pago</span>
+        </button>
+        <button class="action-row" id="action-add-ai">
+          <strong>Borrador con IA</strong>
+          <span>Imagen, correo pegado o PDF con texto local</span>
+        </button>
+        <button class="action-row" id="action-add-card">
+          <strong>Nueva tarjeta</strong>
+          <span>Banco, ultimos 4, corte y pago</span>
+        </button>
+        <button class="action-row" id="action-add-goal">
+          <strong>Nueva meta</strong>
+          <span>Ahorro con objetivo y progreso</span>
+        </button>
+        <button class="action-row" id="action-add-debt">
+          <strong>Nueva deuda</strong>
+          <span>Prestamo, cuota o saldo pendiente</span>
+        </button>
+        <button class="action-row" id="action-add-recurring">
+          <strong>Movimiento recurrente</strong>
+          <span>Ingreso o gasto que cae cada mes</span>
+        </button>
+        <button class="action-row" id="action-add-account">
+          <strong>Nueva cuenta</strong>
+          <span>Efectivo, banco o ahorro</span>
+        </button>
+      </div>
+      <button class="btn-secondary btn-full" data-close-modal="modal-actions">Cerrar</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-transaction">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Movimiento</p>
+          <h2 id="transaction-modal-title">Nuevo movimiento</h2>
+        </div>
+        <span class="source-badge hidden" id="tx-source-badge"></span>
+      </div>
+      <form id="transaction-form" class="form-stack">
+        <div class="two-columns">
+          <label class="field">
+            <span>Tipo</span>
+            <select id="tx-type" required>
+              <option value="expense">Gasto</option>
+              <option value="income">Ingreso</option>
+              <option value="transfer">Transferencia</option>
+              <option value="card_charge">Compra con tarjeta</option>
+              <option value="card_payment">Pago de tarjeta</option>
+              <option value="debt_payment">Pago de deuda</option>
+              <option value="goal_contribution">Aporte a meta</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Monto</span>
+            <input type="number" step="0.01" min="0" id="tx-amount" placeholder="0.00" required>
+          </label>
+        </div>
+
+        <div class="two-columns">
+          <label class="field">
+            <span>Fecha real</span>
+            <input type="date" id="tx-date" required>
+          </label>
+          <label class="field" id="field-tx-category">
+            <span>Categoria</span>
+            <select id="tx-category"></select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Descripcion</span>
+          <input type="text" id="tx-description" maxlength="80" placeholder="Ej: supermercado, sueldo, cuota, pago TC" required>
+        </label>
+
+        <div class="two-columns">
+          <label class="field" id="field-tx-from-account">
+            <span>Cuenta origen</span>
+            <select id="tx-from-account"></select>
+          </label>
+          <label class="field" id="field-tx-to-account">
+            <span>Cuenta destino</span>
+            <select id="tx-to-account"></select>
+          </label>
+        </div>
+
+        <div class="two-columns hidden" id="transaction-linked-row">
+          <label class="field hidden" id="field-tx-card">
+            <span>Tarjeta</span>
+            <select id="tx-card-id"></select>
+          </label>
+          <label class="field hidden" id="field-tx-card-statement">
+            <span>Estado de cuenta</span>
+            <select id="tx-card-statement"></select>
+          </label>
+          <label class="field hidden" id="field-tx-linked-debt">
+            <span>Deuda</span>
+            <select id="tx-linked-debt"></select>
+          </label>
+          <label class="field hidden" id="field-tx-linked-goal">
+            <span>Meta</span>
+            <select id="tx-linked-goal"></select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Notas</span>
+          <textarea id="tx-notes" rows="3" maxlength="300" placeholder="Dato opcional: voucher, recordatorio o contexto"></textarea>
+        </label>
+
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-transaction">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar movimiento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-ai">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">IA opcional</p>
+          <h2>Crear borrador</h2>
+        </div>
+      </div>
+      <form id="ai-form" class="form-stack">
+        <p class="helper-box">Esta es la unica parte que sale a la nube. Todo lo demas sigue local en tu dispositivo. La IA nunca guarda nada sola: primero te abre un borrador revisable.</p>
+        <label class="field">
+          <span>Archivo</span>
+          <input type="file" id="ai-file-input" accept="image/*,.pdf,.txt">
+          <small>Sirve para capturas, comprobantes o PDFs cuando podamos extraer texto localmente.</small>
+        </label>
+        <label class="field">
+          <span>Texto de correo</span>
+          <textarea id="ai-text-input" rows="6" placeholder="Pega aqui el texto de un correo, voucher o notificacion bancaria"></textarea>
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-ai">Cancelar</button>
+          <button type="submit" class="btn-primary" id="btn-ai-analyze">Analizar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-account">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Patrimonio</p>
+          <h2 id="account-modal-title">Nueva cuenta</h2>
+        </div>
+      </div>
+      <form id="account-form" class="form-stack">
+        <div class="two-columns">
+          <label class="field">
+            <span>Nombre</span>
+            <input type="text" id="account-name" maxlength="60" required>
+          </label>
+          <label class="field">
+            <span>Tipo</span>
+            <select id="account-kind">
+              <option value="cash">Efectivo</option>
+              <option value="bank">Banco</option>
+              <option value="savings">Ahorros</option>
+            </select>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Saldo inicial</span>
+            <input type="number" step="0.01" id="account-opening-balance" placeholder="0.00">
+          </label>
+          <label class="field checkbox-field">
+            <span>Contar en patrimonio</span>
+            <input type="checkbox" id="account-include-networth" checked>
+          </label>
+        </div>
+        <label class="field checkbox-field">
+          <span>Archivar cuenta</span>
+          <input type="checkbox" id="account-archived">
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-account">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar cuenta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-card">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Tarjetas</p>
+          <h2 id="card-modal-title">Nueva tarjeta</h2>
+        </div>
+      </div>
+      <form id="card-form" class="form-stack">
+        <div class="two-columns">
+          <label class="field">
+            <span>Banco</span>
+            <input type="text" id="card-bank-name" maxlength="60" required>
+          </label>
+          <label class="field">
+            <span>Ultimos 4</span>
+            <input type="text" id="card-last4" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" required>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Dia de corte</span>
+            <input type="number" min="1" max="28" id="card-closing-day" value="10" required>
+          </label>
+          <label class="field">
+            <span>Dia de pago</span>
+            <input type="number" min="1" max="28" id="card-due-day" value="25" required>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Cuenta pagadora</span>
+            <select id="card-payment-account-id"></select>
+          </label>
+          <label class="field">
+            <span>Saldo migrado inicial</span>
+            <input type="number" step="0.01" min="0" id="card-opening-balance" value="0">
+          </label>
+        </div>
+        <label class="field checkbox-field">
+          <span>Archivar tarjeta</span>
+          <input type="checkbox" id="card-archived">
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-card">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar tarjeta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-goal">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Ahorro</p>
+          <h2 id="goal-modal-title">Nueva meta</h2>
+        </div>
+      </div>
+      <form id="goal-form" class="form-stack">
+        <label class="field">
+          <span>Nombre</span>
+          <input type="text" id="goal-name" maxlength="80" required>
+        </label>
+        <div class="two-columns">
+          <label class="field">
+            <span>Objetivo</span>
+            <input type="number" step="0.01" min="0" id="goal-target-amount" required>
+          </label>
+          <label class="field">
+            <span>Ya ahorrado</span>
+            <input type="number" step="0.01" min="0" id="goal-current-amount" value="0">
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Fecha objetivo</span>
+            <input type="date" id="goal-target-date">
+          </label>
+          <label class="field">
+            <span>Cuenta destino</span>
+            <select id="goal-account-id"></select>
+          </label>
+        </div>
+        <label class="field checkbox-field">
+          <span>Archivar meta</span>
+          <input type="checkbox" id="goal-archived">
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-goal">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar meta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-debt">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Obligaciones</p>
+          <h2 id="debt-modal-title">Nueva deuda</h2>
+        </div>
+      </div>
+      <form id="debt-form" class="form-stack">
+        <label class="field">
+          <span>Nombre</span>
+          <input type="text" id="debt-name" maxlength="80" required>
+        </label>
+        <div class="two-columns">
+          <label class="field">
+            <span>Tipo</span>
+            <select id="debt-kind">
+              <option value="loan">Prestamo</option>
+              <option value="installment">Cuotas</option>
+              <option value="personal">Personal</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Dia de pago</span>
+            <input type="number" min="1" max="28" id="debt-due-day" value="1" required>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Total original</span>
+            <input type="number" step="0.01" min="0" id="debt-total-amount" required>
+          </label>
+          <label class="field">
+            <span>Saldo pendiente actual</span>
+            <input type="number" step="0.01" min="0" id="debt-outstanding-amount" required>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Pago minimo</span>
+            <input type="number" step="0.01" min="0" id="debt-minimum-payment" value="0">
+          </label>
+          <label class="field">
+            <span>Cuenta relacionada</span>
+            <select id="debt-account-id"></select>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Total de cuotas</span>
+            <input type="number" min="0" id="debt-installment-count" value="0">
+          </label>
+          <label class="field">
+            <span>Cuotas pagadas</span>
+            <input type="number" min="0" id="debt-installments-paid" value="0">
+          </label>
+        </div>
+        <label class="field checkbox-field">
+          <span>Archivar deuda</span>
+          <input type="checkbox" id="debt-archived">
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-debt">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar deuda</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-recurring">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Automatico</p>
+          <h2 id="recurring-modal-title">Nuevo recurrente</h2>
+        </div>
+      </div>
+      <form id="recurring-form" class="form-stack">
+        <div class="two-columns">
+          <label class="field">
+            <span>Tipo</span>
+            <select id="recurring-type">
+              <option value="expense">Gasto</option>
+              <option value="income">Ingreso</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Dia del mes</span>
+            <input type="number" min="1" max="28" id="recurring-day" value="1" required>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Monto</span>
+            <input type="number" step="0.01" min="0" id="recurring-amount" required>
+          </label>
+          <label class="field">
+            <span>Cuenta</span>
+            <select id="recurring-account-id"></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Descripcion</span>
+          <input type="text" id="recurring-description" maxlength="80" required>
+        </label>
+        <label class="field" id="field-recurring-category">
+          <span>Categoria</span>
+          <select id="recurring-category-id"></select>
+        </label>
+        <label class="field checkbox-field">
+          <span>Es mi sueldo principal</span>
+          <input type="checkbox" id="recurring-is-primary-salary">
+        </label>
+        <label class="field checkbox-field">
+          <span>Activo</span>
+          <input type="checkbox" id="recurring-active" checked>
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-recurring">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar recurrente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-settings">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Sistema local</p>
+          <h2>Ajustes</h2>
+        </div>
+      </div>
+      <div class="form-stack">
+        <div class="settings-block">
+          <h3>Motor del ciclo</h3>
+          <label class="field">
+            <span>Sueldo principal</span>
+            <select id="settings-primary-salary"></select>
+          </label>
+          <div class="two-columns">
+            <label class="field">
+              <span>Cuenta ahorro destino</span>
+              <select id="settings-savings-account"></select>
+            </label>
+            <label class="field">
+              <span>Cuenta desde donde barrer</span>
+              <select id="settings-sweep-source-account"></select>
+            </label>
+          </div>
+          <label class="field checkbox-field">
+            <span>Barrido automatico a ahorro</span>
+            <input type="checkbox" id="settings-savings-sweep-enabled" checked>
+          </label>
+          <div class="field">
+            <span>Cuentas liquidas que cuentan para el sobrante</span>
+            <div class="checkbox-grid" id="settings-liquid-accounts"></div>
+          </div>
+          <button class="btn-primary btn-full" id="btn-save-cycle-config">Guardar configuracion del ciclo</button>
+        </div>
+
+        <label class="field">
+          <span>Tope de gasto de referencia</span>
+          <input type="number" step="0.01" min="0" id="settings-budget-input" placeholder="0.00">
+        </label>
+        <button class="btn-primary btn-full" id="btn-save-budget">Guardar tope</button>
+
+        <label class="field">
+          <span>API Key de OpenAI</span>
+          <input type="password" id="settings-api-key" placeholder="sk-...">
+          <small>Solo se usa cuando tu activas la IA. No se incluye en el backup JSON.</small>
+        </label>
+        <div class="split-actions">
+          <button class="btn-secondary" id="btn-toggle-api-key">Mostrar / ocultar</button>
+          <button class="btn-primary" id="btn-save-api-key">Guardar key</button>
+        </div>
+
+        <div class="theme-switcher">
+          <button class="btn-secondary" id="btn-theme-dark">Tema oscuro</button>
+          <button class="btn-secondary" id="btn-theme-light">Tema claro</button>
+        </div>
+
+        <div class="settings-block">
+          <h3>Respaldo local</h3>
+          <p id="backup-status">Aun no has exportado un backup completo.</p>
+          <div class="split-actions">
+            <button class="btn-secondary" id="btn-export-json">Exportar JSON</button>
+            <button class="btn-secondary" id="btn-import-json">Importar JSON</button>
+          </div>
+          <div class="split-actions">
+            <button class="btn-secondary" id="btn-export-csv">Exportar CSV</button>
+            <button class="btn-danger" id="btn-clear-data">Borrar todo</button>
+          </div>
+          <input type="file" id="backup-file-input" class="hidden" accept="application/json,.json">
+        </div>
+
+        <div class="settings-block">
+          <h3>Estado local</h3>
+          <p id="storage-status">Revisando almacenamiento persistente...</p>
+        </div>
+
+        <button class="btn-secondary btn-full" data-close-modal="modal-settings">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-detail">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Detalle</p>
+          <h2 id="detail-title">Movimiento</h2>
+        </div>
+      </div>
+      <div class="detail-stack" id="detail-body"></div>
+      <div class="modal-actions-row">
+        <button class="btn-secondary" id="btn-detail-edit">Editar</button>
+        <button class="btn-danger" id="btn-detail-delete">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-card-statements">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Tarjetas</p>
+          <h2 id="card-statements-title">Estados de cuenta</h2>
+        </div>
+      </div>
+      <div class="detail-stack" id="card-statements-body"></div>
+      <button class="btn-secondary btn-full" data-close-modal="modal-card-statements">Cerrar</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-confirm">
+    <div class="modal-sheet compact-sheet">
+      <div class="modal-handle"></div>
+      <h2 id="confirm-title">Confirmar</h2>
+      <p id="confirm-text">Esta accion no se puede deshacer.</p>
+      <div class="modal-actions-row">
+        <button class="btn-secondary" id="btn-confirm-cancel">Cancelar</button>
+        <button class="btn-danger" id="btn-confirm-accept">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="db.js"></script>
+  <script src="ai.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
