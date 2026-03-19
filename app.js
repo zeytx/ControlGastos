@@ -87,6 +87,7 @@ const App = (() => {
       cycles: [],
       currentCycleId: '',
       currentCycle: null,
+      projectionByCycle: {},
       statements: [],
       agenda: [],
       alerts: []
@@ -142,10 +143,38 @@ const App = (() => {
 
   function getSelectedCycleTransactions() {
     const cycleId = getSelectedCycleId();
-    if (!cycleId) return [];
-    return getSnapshot().transactions
+    const snapshot = getSnapshot();
+    if (!cycleId) {
+      return snapshot.transactions
+        .sort((a, b) => FinanceDB.compareDate(a.date, b.date));
+    }
+    return snapshot.transactions
       .filter((item) => item.budgetCycleId === cycleId)
       .sort((a, b) => FinanceDB.compareDate(a.date, b.date));
+  }
+
+  function getTodayDate() {
+    return FinanceDB.getToday();
+  }
+
+  function getAccountProjectionView() {
+    const cycleId = getSelectedCycleId();
+    const projection = getSnapshot().projectionByCycle?.[cycleId] || null;
+    if (!projection?.showProjection) {
+      return {
+        showProjection: false,
+        label: '',
+        balances: {},
+        visibleNetWorth: 0
+      };
+    }
+
+    return {
+      showProjection: true,
+      label: `Proyeccion al ${formatShortDate(projection.cutoffDate)}`,
+      balances: projection.balances || {},
+      visibleNetWorth: projection.visibleNetWorth || 0
+    };
   }
 
   function sumAmounts(items, predicate) {
@@ -358,7 +387,10 @@ const App = (() => {
   }
 
   function formatDate(value) {
-    const date = FinanceDB.normalizeDate(value);
+    const raw = String(value || '').trim();
+    if (!raw) return 'Sin fecha';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const date = FinanceDB.normalizeDate(raw);
     const year = parseInt(date.slice(0, 4), 10);
     const month = parseInt(date.slice(5, 7), 10);
     const day = parseInt(date.slice(8, 10), 10);
@@ -366,18 +398,33 @@ const App = (() => {
   }
 
   function formatShortDate(value) {
-    const date = FinanceDB.normalizeDate(value);
+    const raw = String(value || '').trim();
+    if (!raw) return 'Sin fecha';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const date = FinanceDB.normalizeDate(raw);
     const month = parseInt(date.slice(5, 7), 10);
     const day = parseInt(date.slice(8, 10), 10);
     return `${day} ${SHORT_MONTH_NAMES[month - 1]}`;
   }
 
   function formatLongDate(value) {
-    const date = FinanceDB.normalizeDate(value);
+    const raw = String(value || '').trim();
+    if (!raw) return 'Sin fecha';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const date = FinanceDB.normalizeDate(raw);
     const year = parseInt(date.slice(0, 4), 10);
     const month = parseInt(date.slice(5, 7), 10);
     const day = parseInt(date.slice(8, 10), 10);
     return `${day} de ${MONTH_NAMES[month - 1]} de ${year}`;
+  }
+
+  function formatMonthLabel(value) {
+    const raw = String(value || '').trim();
+    const normalized = /^\d{4}-\d{2}$/.test(raw) ? `${raw}-01` : raw;
+    const date = FinanceDB.normalizeDate(normalized);
+    const year = parseInt(date.slice(0, 4), 10);
+    const month = parseInt(date.slice(5, 7), 10);
+    return `${MONTH_NAMES[month - 1]} ${year}`;
   }
 
   function formatCycleMonthLabel(cycle) {
@@ -441,12 +488,12 @@ const App = (() => {
     return options;
   }
 
-  function buildCardOptions(emptyLabel = '') {
+  function buildCardOptions({ emptyLabel = '', includeArchived = false, selectedCardId = '' } = {}) {
     const options = getSnapshot().cards
-      .filter((card) => !card.archived)
+      .filter((card) => includeArchived || !card.archived || card.id === selectedCardId)
       .map((card) => ({
         value: card.id,
-        label: card.label
+        label: `${card.bankName} • ${card.last4}`
       }));
     if (emptyLabel) {
       return [{ value: '', label: emptyLabel }].concat(options);
@@ -463,8 +510,48 @@ const App = (() => {
     return getCategoryMap().get(categoryId)?.name || '';
   }
 
+  function getCardDisplayLabel(card) {
+    if (!card) return '';
+    return `${card.bankName} • ${card.last4}`;
+  }
+
+  function buildVisibleCardOptions({ emptyLabel = '', includeArchived = false, selectedCardId = '' } = {}) {
+    const options = getSnapshot().cards
+      .filter((card) => includeArchived || !card.archived || card.id === selectedCardId)
+      .map((card) => ({
+        value: card.id,
+        label: `${getCardDisplayLabel(card)}${card.archived ? ' (archivada)' : ''}`
+      }));
+    if (emptyLabel) {
+      return [{ value: '', label: emptyLabel }].concat(options);
+    }
+    return options;
+  }
+
   function getCardLabel(cardId) {
-    return getCardMap().get(cardId)?.label || '';
+    const card = getCardMap().get(cardId);
+    return card ? `${card.bankName} • ${card.last4}` : '';
+  }
+
+  function formatStatementLabel(statement) {
+    if (!statement) return 'Sin estado';
+    if (statement.kind === 'opening-debt') return 'Deuda inicial';
+    if (statement.periodStart && statement.periodEnd) {
+      return `${formatShortDate(statement.periodStart)} - ${formatShortDate(statement.periodEnd)}`;
+    }
+    return String(statement.label || '').replace(/Â/g, '').replace(/â€¢/g, '•');
+  }
+
+  function formatInstallmentLabel(transaction) {
+    if (!transaction || transaction.type !== 'card_charge') return '';
+    const count = Math.max(1, parseInt(transaction.installmentCount || 1, 10) || 1);
+    const index = Math.max(1, parseInt(transaction.installmentIndex || 1, 10) || 1);
+    if (count <= 1) return '1 cuota';
+    return `Cuota ${index}/${count}`;
+  }
+
+  function isInstallmentGroupTransaction(transaction) {
+    return !!(transaction?.type === 'card_charge' && transaction.installmentGroupId && transaction.installmentCount > 1);
   }
 
   function getCycleLabelById(cycleId) {
@@ -579,6 +666,20 @@ const App = (() => {
     renderBackupStatus();
     updateTransactionFields();
     updateRecurringFields();
+    animateSections();
+  }
+
+  function animateSections() {
+    const elements = $$('.section-block, .hero-card, .alerts-card, .dashboard-card, .panel-card');
+    elements.forEach((el, i) => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(16px)';
+      setTimeout(() => {
+        el.style.transition = 'opacity 0.45s var(--ease-out-expo), transform 0.5s var(--ease-out-expo)';
+        el.style.opacity = '1';
+        el.style.transform = 'translateY(0)';
+      }, 30 + i * 25);
+    });
   }
 
   function renderInstallCard() {
@@ -626,6 +727,23 @@ const App = (() => {
     $('#summary-cash-spend').textContent = formatCurrency(summary.cashSpend || 0);
     $('#summary-card-assigned').textContent = formatCurrency(summary.cardAssigned || 0);
     $('#summary-free').textContent = formatCurrency(summary.freeNetAmount ?? summary.freeLiquidNow ?? 0);
+
+    const progressRow = $('#cycle-progress-row');
+    if (cycle) {
+      const today = getTodayDate();
+      const startMs = new Date(cycle.startDate).getTime();
+      const endMs = new Date(cycle.endDate).getTime();
+      const todayMs = new Date(today).getTime();
+      const totalDays = Math.max(1, Math.round((endMs - startMs) / 86400000));
+      const elapsed = Math.max(0, Math.round((todayMs - startMs) / 86400000));
+      const pct = Math.min(100, Math.round((elapsed / totalDays) * 100));
+      const remaining = Math.max(0, totalDays - elapsed);
+      $('#cycle-time-fill').style.width = `${pct}%`;
+      $('#cycle-progress-label').textContent = `Dia ${elapsed} de ${totalDays} (${remaining}d restantes)`;
+      progressRow.style.display = '';
+    } else {
+      progressRow.style.display = 'none';
+    }
 
     const config = getSnapshot().settings.financialCycleConfig || {};
     const meta = $('#cycle-meta');
@@ -692,7 +810,22 @@ const App = (() => {
 
     $('#dashboard-pill').textContent = cycle
       ? `${dashboardMetrics.transactionCount} movs. / libre ${formatCurrency(dashboardMetrics.freeNet)}`
-      : 'Sin lectura';
+      : 'Sin ciclo activo';
+
+    if (!cycle) {
+      const emptyMsg = '<div class="chart-empty">Configura un recurrente de ingreso como sueldo principal para activar el dashboard por ciclos.</div>';
+      $('#balance-donut').innerHTML = emptyMsg;
+      $('#balance-legend').innerHTML = '';
+      $('#insights-list').innerHTML = emptyMsg;
+      $('#coverage-fill').style.width = '0%';
+      $('#coverage-badge').textContent = 'Sin datos';
+      $('#coverage-badge').className = 'chip';
+      $('#coverage-note').textContent = 'El dashboard se activa cuando configures tu sueldo principal en Ajustes.';
+      $('#category-breakdown').innerHTML = '<div class="chart-empty">Registra gastos para ver el desglose por categorias.</div>';
+      $('#cycle-trend-chart').innerHTML = '';
+      $('#trend-summary').innerHTML = '<span class="trend-chip">Sin ciclo</span>';
+      return;
+    }
 
     const segments = [
       { label: 'Cash y deudas', value: dashboardMetrics.cashSpend, className: 'segment-expense', colorClass: 'legend-expense' },
@@ -733,13 +866,15 @@ const App = (() => {
       },
       {
         kicker: 'Proximo corte',
-        title: nextClosingCard ? nextClosingCard.label : 'Sin tarjetas',
+        title: nextClosingCard ? getCardLabel(nextClosingCard.id) : 'Sin tarjetas',
         detail: nextClosingCard ? formatDate(nextClosingCard.nextClosingDate) : 'No hay corte registrado'
       },
       {
         kicker: 'Proximo pago',
         title: nextPendingCard ? formatCurrency(nextPendingCard.pendingAmount) : 'Al dia',
-        detail: nextPendingCard ? `${getCardLabel(nextPendingCard.cardId)} / ${formatDate(nextPendingCard.dueDate)}` : 'Sin estados abiertos'
+        detail: nextPendingCard
+          ? `${getCardLabel(nextPendingCard.cardId)} / ${nextPendingCard.dueDate ? formatDate(nextPendingCard.dueDate) : 'Sin vencimiento definido'}`
+          : 'Sin estados abiertos'
       },
       {
         kicker: 'Barrido a ahorro',
@@ -802,14 +937,46 @@ const App = (() => {
       : '<span class="trend-chip">Sin ritmo aun</span>';
   }
 
+  function buildBackupAlert() {
+    const settings = getSnapshot().settings;
+    const lastBackupAt = settings.lastBackupAt || '';
+    const txCount = getSnapshot().transactions.length;
+
+    if (!lastBackupAt && txCount > 5) {
+      return {
+        kind: 'warning',
+        title: 'Aun no has hecho tu primer backup',
+        text: `Tienes ${txCount} movimientos que se perderan si borras los datos del navegador. Ve a Ajustes > Exportar JSON.`
+      };
+    }
+
+    if (lastBackupAt) {
+      const lastDate = new Date(lastBackupAt);
+      const now = new Date();
+      const daysSince = Math.floor((now - lastDate) / 86400000);
+      if (daysSince > 7) {
+        return {
+          kind: 'info',
+          title: `Han pasado ${daysSince} dias desde tu ultimo backup`,
+          text: `Ultimo backup: ${formatLongDate(lastBackupAt.slice(0, 10))}. Exporta un JSON nuevo para proteger tus datos.`
+        };
+      }
+    }
+
+    return null;
+  }
+
   function renderAlerts() {
     const container = $('#alerts-list');
-    const alerts = getSnapshot().alerts || [];
+    const alerts = [...(getSnapshot().alerts || [])];
+    const backupAlert = buildBackupAlert();
+    if (backupAlert) alerts.push(backupAlert);
+
     if (!alerts.length) {
       container.innerHTML = `
         <div class="alert-item info">
           <strong>Todo en orden</strong>
-          <span>No hay alertas urgentes. Igual recuerda exportar tu backup JSON de vez en cuando.</span>
+          <span>No hay alertas urgentes y tu backup esta al dia.</span>
         </div>
       `;
       return;
@@ -866,6 +1033,7 @@ const App = (() => {
   function renderAccounts() {
     const container = $('#accounts-grid');
     const { accounts, balances } = getSnapshot();
+    const projection = getAccountProjectionView();
     if (!accounts.length) {
       container.innerHTML = renderEmptyPanel('Aun no tienes cuentas', 'Crea una cuenta para empezar a distribuir tu dinero localmente.');
       return;
@@ -874,24 +1042,34 @@ const App = (() => {
     const visibleNetWorth = accounts
       .filter((account) => account.includeInNetWorth && !account.archived)
       .reduce((sum, account) => sum + (balances[account.id] || 0), 0);
+    const projectedVisibleNetWorth = projection.showProjection ? projection.visibleNetWorth || 0 : 0;
 
     const summaryCard = `
       <article class="panel-card">
         <div class="panel-card-header">
           <div>
             <p class="eyebrow">Vista global</p>
-            <h4 class="panel-card-title">Patrimonio visible</h4>
+            <h4 class="panel-card-title">Patrimonio visible hoy</h4>
           </div>
           <span class="chip positive">${accounts.filter((account) => !account.archived).length} activas</span>
         </div>
         <div class="balance-amount">${formatCurrency(visibleNetWorth)}</div>
-        <p class="panel-card-subtitle">Suma de cuentas que decidiste mostrar en tu patrimonio.</p>
+        <p class="panel-card-subtitle">Saldo real al dia de hoy en tus cuentas visibles.</p>
+        ${projection.showProjection ? `
+          <div class="projection-box">
+            <span class="projection-label">${escapeHtml(projection.label)}</span>
+            <strong class="projection-amount">${escapeHtml(formatCurrency(projectedVisibleNetWorth))}</strong>
+          </div>
+        ` : ''}
       </article>
     `;
 
     const cards = accounts
       .map(
-        (account) => `
+        (account) => {
+          const currentBalance = balances[account.id] || 0;
+          const projectedBalance = projection.showProjection ? (projection.balances[account.id] || 0) : currentBalance;
+          return `
           <article class="panel-card" data-account-id="${escapeHtml(account.id)}">
             <div class="panel-card-header">
               <div>
@@ -900,16 +1078,24 @@ const App = (() => {
               </div>
               <span class="chip ${account.archived ? 'warning' : 'positive'}">${account.archived ? 'Archivada' : 'Activa'}</span>
             </div>
-            <div class="balance-amount">${formatCurrency(balances[account.id] || 0)}</div>
+            <div class="balance-amount">${formatCurrency(currentBalance)}</div>
+            <p class="panel-card-subtitle">Disponible hoy</p>
             <div class="chips-row">
               <span class="chip">${account.includeInNetWorth ? 'Cuenta visible' : 'No suma patrimonio'}</span>
               <span class="chip">Inicial ${formatCurrency(account.openingBalance)}</span>
             </div>
+            ${projection.showProjection ? `
+              <div class="projection-box">
+                <span class="projection-label">${escapeHtml(projection.label)}</span>
+                <strong class="projection-amount">${escapeHtml(formatCurrency(projectedBalance))}</strong>
+              </div>
+            ` : ''}
             <div class="panel-actions">
               <button class="btn-secondary" data-account-action="edit" data-account-id="${escapeHtml(account.id)}">Editar</button>
             </div>
           </article>
-        `
+        `;
+        }
       )
       .join('');
 
@@ -927,29 +1113,47 @@ const App = (() => {
     container.innerHTML = cards
       .map((card) => {
         const statement = card.currentStatement;
-        const assignedCycle = statement?.budgetCycleId ? getCycleLabelById(statement.budgetCycleId) : 'Sin ciclo asignado';
+        const assignedCycle = statement?.budgetCycleId ? getCycleLabelById(statement.budgetCycleId) : 'Sin sueldo asignado aun';
         const progress = statement?.chargedAmount ? Math.min(100, Math.round((statement.paidAmount / statement.chargedAmount) * 100)) : 0;
+        const utilizationWidth = Math.max(0, Math.min(100, card.utilizationPct || 0));
+        const statementLabel = statement ? formatStatementLabel(statement) : 'Aun no hay estado abierto para esta tarjeta.';
         return `
           <article class="panel-card" data-card-id="${escapeHtml(card.id)}">
             <div class="panel-card-header">
               <div>
-                <h4 class="panel-card-title">${escapeHtml(card.label)}</h4>
+                <h4 class="panel-card-title">${escapeHtml(getCardLabel(card.id))}</h4>
                 <span class="panel-card-subtitle">Corte dia ${escapeHtml(card.closingDay)} / Pago dia ${escapeHtml(card.dueDay)}</span>
               </div>
-              <span class="chip ${card.pendingAmount > 0 ? 'danger' : 'positive'}">${card.pendingAmount > 0 ? 'Pendiente' : 'Al dia'}</span>
+              <span class="chip ${card.archived ? 'warning' : card.currentDebt > 0 ? 'danger' : 'positive'}">${card.archived ? 'Archivada' : card.currentDebt > 0 ? 'Con deuda' : 'Sin deuda'}</span>
             </div>
-            <div class="balance-amount">${formatCurrency(card.pendingAmount || 0)}</div>
-            <div class="progress-track compact-track"><div class="progress-fill" style="width: ${progress}%"></div></div>
+            <div class="balance-amount">${formatCurrency(card.currentDebt || 0)}</div>
+            <p class="panel-card-subtitle">Deuda actual</p>
+            <div class="card-metrics-grid">
+              <div class="metric-tile">
+                <span class="metric-kicker">Disponible</span>
+                <strong>${formatCurrency(card.availableCredit || 0)}</strong>
+              </div>
+              <div class="metric-tile">
+                <span class="metric-kicker">Linea total</span>
+                <strong>${formatCurrency(card.creditLimit || 0)}</strong>
+              </div>
+            </div>
+            <div class="progress-track compact-track"><div class="progress-fill" style="width: ${utilizationWidth}%"></div></div>
+            <div class="utilization-copy">
+              <span>Uso ${escapeHtml(`${FinanceDB.roundAmount(card.utilizationPct || 0).toFixed(1)}%`)}</span>
+              <span>${escapeHtml(card.creditLimit > 0 ? `Deuda ${formatCurrency(card.currentDebt || 0)}` : 'Agrega la linea total')}</span>
+            </div>
             <div class="chips-row">
               <span class="chip">Proximo corte ${escapeHtml(formatDate(card.nextClosingDate))}</span>
               <span class="chip">Proximo pago ${escapeHtml(formatDate(card.nextDueDate))}</span>
               <span class="chip">${escapeHtml(statement ? assignedCycle : 'Sin estado abierto')}</span>
+              ${card.openingDebtPending > 0 ? `<span class="chip warning">Deuda inicial ${escapeHtml(formatCurrency(card.openingDebtPending))}</span>` : ''}
               ${card.needsReview ? '<span class="chip warning">Revisar migracion</span>' : ''}
             </div>
-            <div class="panel-card-subtitle">${escapeHtml(statement ? `${statement.label} / cubierto ${progress}%` : 'Aun no hay estado abierto para esta tarjeta.')}</div>
+            <div class="panel-card-subtitle">${escapeHtml(statement ? `${statementLabel} / cubierto ${progress}%` : statementLabel)}</div>
             <div class="panel-actions">
-              <button class="btn-primary" data-card-action="charge" data-card-id="${escapeHtml(card.id)}">Compra</button>
-              <button class="btn-primary" data-card-action="pay" data-card-id="${escapeHtml(card.id)}">Pagar</button>
+              ${card.archived ? '' : `<button class="btn-primary" data-card-action="charge" data-card-id="${escapeHtml(card.id)}">Compra</button>`}
+              ${card.archived ? '' : `<button class="btn-primary" data-card-action="pay" data-card-id="${escapeHtml(card.id)}">Pagar</button>`}
               <button class="btn-secondary" data-card-action="statements" data-card-id="${escapeHtml(card.id)}">Estados</button>
               <button class="btn-secondary" data-card-action="edit" data-card-id="${escapeHtml(card.id)}">Editar</button>
             </div>
@@ -1057,6 +1261,8 @@ const App = (() => {
           <div class="chips-row">
             <span class="chip">${escapeHtml(getCategoryLabel(item.categoryId) || 'Sin categoria')}</span>
             <span class="chip">${escapeHtml(getAccountLabel(item.accountId) || 'Sin cuenta')}</span>
+            ${item.startDate ? `<span class="chip">Empieza ${escapeHtml(formatShortDate(item.startDate))}</span>` : ''}
+            ${item.endMonth ? `<span class="chip warning">Hasta ${escapeHtml(formatMonthLabel(item.endMonth))}</span>` : ''}
             ${item.isPrimarySalary ? '<span class="chip positive">Sueldo principal</span>' : ''}
           </div>
           <div class="panel-actions">
@@ -1066,6 +1272,16 @@ const App = (() => {
         </article>
       `)
       .join('');
+  }
+
+  function agendaKindLabel(kind) {
+    const labels = { salary: 'Sueldo', 'card-close': 'Corte', 'card-due': 'Vencimiento', 'card-charge': 'Cargo tarjeta', income: 'Ingreso', expense: 'Gasto', statement: 'Estado de cuenta', transaction: 'Transacción' };
+    return labels[kind] || kind;
+  }
+
+  function agendaKindIcon(kind) {
+    const icons = { salary: '$', 'card-close': '||', 'card-due': '!', 'card-charge': 'TC', income: '^', expense: 'v', statement: 'EC' };
+    return icons[kind] || '·';
   }
 
   function renderAgenda() {
@@ -1079,14 +1295,15 @@ const App = (() => {
     container.innerHTML = items
       .map(
         (item) => `
-          <article class="transaction-item agenda-item">
+          <article class="transaction-item agenda-item agenda-${escapeHtml(item.kind)}">
             <div class="transaction-top">
-              <div>
-                <h4 class="transaction-title">${escapeHtml(item.title)}</h4>
-                <div class="transaction-meta">${escapeHtml(formatDate(item.date))} / ${escapeHtml(item.kind)}</div>
+              <div class="transaction-heading">
+                <span class="agenda-icon agenda-icon-${escapeHtml(item.kind)}">${escapeHtml(agendaKindIcon(item.kind))}</span>
+                <div>
+                  <h4 class="transaction-title">${escapeHtml(item.title)}</h4>
+                  <div class="transaction-meta">${escapeHtml(formatDate(item.date))} · ${escapeHtml(agendaKindLabel(item.kind))}</div>
+                </div>
               </div>
-            </div>
-            <div class="chips-row">
               <span class="chip">${escapeHtml(item.subtitle)}</span>
             </div>
           </article>
@@ -1109,19 +1326,21 @@ const App = (() => {
     const cycleId = getSelectedCycleId();
     const search = state.filters.search.trim().toLowerCase();
 
-    return snapshot.transactions.filter((item) => {
-      const matchesCycle = cycleId ? item.budgetCycleId === cycleId : true;
-      const matchesType = state.filters.type === 'all' || item.type === state.filters.type;
-      const matchesAccount =
-        state.filters.accountId === 'all' ||
-        item.fromAccountId === state.filters.accountId ||
-        item.toAccountId === state.filters.accountId;
-      const matchesCard = state.filters.cardId === 'all' || item.cardId === state.filters.cardId;
-      const matchesCategory = state.filters.categoryId === 'all' || item.categoryId === state.filters.categoryId;
-      const haystack = `${item.description} ${item.notes} ${item.sourceType} ${getCardLabel(item.cardId)}`.toLowerCase();
-      const matchesSearch = !search || haystack.includes(search);
-      return matchesCycle && matchesType && matchesAccount && matchesCard && matchesCategory && matchesSearch;
-    });
+    return snapshot.transactions
+      .filter((item) => {
+        const matchesCycle = cycleId ? item.budgetCycleId === cycleId : true;
+        const matchesType = state.filters.type === 'all' || item.type === state.filters.type;
+        const matchesAccount =
+          state.filters.accountId === 'all' ||
+          item.fromAccountId === state.filters.accountId ||
+          item.toAccountId === state.filters.accountId;
+        const matchesCard = state.filters.cardId === 'all' || item.cardId === state.filters.cardId;
+        const matchesCategory = state.filters.categoryId === 'all' || item.categoryId === state.filters.categoryId;
+        const haystack = `${item.description} ${item.notes} ${item.sourceType} ${getCardLabel(item.cardId)}`.toLowerCase();
+        const matchesSearch = !search || haystack.includes(search);
+        return matchesCycle && matchesType && matchesAccount && matchesCard && matchesCategory && matchesSearch;
+      })
+      .sort((a, b) => FinanceDB.compareDate(a.date, b.date));
   }
 
   function renderTransactions() {
@@ -1142,6 +1361,7 @@ const App = (() => {
         const accountSummary = describeTransactionAccounts(item);
         const categoryLabel = getCategoryLabel(item.categoryId);
         const cycleLabel = item.budgetCycleId ? getCycleLabelById(item.budgetCycleId) : '';
+        const installmentLabel = formatInstallmentLabel(item);
         const amountClass =
           item.type === 'income'
             ? 'income'
@@ -1157,7 +1377,7 @@ const App = (() => {
                   <span class="type-badge type-${escapeHtml(item.type)}">${escapeHtml(typeBadge)}</span>
                   <h4 class="transaction-title">${escapeHtml(item.description)}</h4>
                 </div>
-                <div class="transaction-meta">${escapeHtml(TYPE_LABELS[item.type] || item.type)} / ${escapeHtml(formatDate(item.date))}</div>
+                <div class="transaction-meta">${escapeHtml(TYPE_LABELS[item.type] || item.type)} / ${escapeHtml(formatDate(item.purchaseDate || item.date))}</div>
               </div>
               <div class="transaction-amount ${escapeHtml(amountClass)}">${formatCurrency(item.amount)}</div>
             </div>
@@ -1166,6 +1386,7 @@ const App = (() => {
               ${accountSummary ? `<span class="chip">${escapeHtml(accountSummary)}</span>` : ''}
               ${cycleLabel ? `<span class="chip">${escapeHtml(cycleLabel)}</span>` : ''}
               ${item.statementCycleKey && item.type === 'card_charge' ? `<span class="chip">Cierra ${escapeHtml(formatDate(item.statementCycleKey))}</span>` : ''}
+              ${installmentLabel ? `<span class="chip">${escapeHtml(installmentLabel)}</span>` : ''}
               <span class="chip">${escapeHtml(formatSourceLabel(item.sourceType))}</span>
             </div>
             ${item.notes ? `<div class="transaction-foot"><span>${escapeHtml(item.notes)}</span></div>` : ''}
@@ -1216,7 +1437,8 @@ const App = (() => {
 
   function populateSelects() {
     populateFilterOptions();
-    populateTransactionFormOptions();
+    populateTransactionFormOptions($('#tx-card-id')?.value || '');
+    populateInstallmentCountOptions($('#tx-installment-count')?.value || '1');
     populateGoalAccountOptions();
     populateDebtAccountOptions();
     populateRecurringAccountOptions();
@@ -1249,10 +1471,17 @@ const App = (() => {
     state.filters.categoryId = $('#filter-category').value;
   }
 
-  function populateTransactionFormOptions() {
+  function populateTransactionFormOptions(selectedCardId = '') {
     fillSelect($('#tx-from-account'), buildAccountOptions({ kinds: ['cash', 'bank', 'savings'], emptyLabel: 'Selecciona una cuenta' }), $('#tx-from-account').value);
     fillSelect($('#tx-to-account'), buildAccountOptions({ kinds: ['cash', 'bank', 'savings'], emptyLabel: 'Sin cuenta destino' }), $('#tx-to-account').value);
-    fillSelect($('#tx-card-id'), buildCardOptions('Selecciona una tarjeta'), $('#tx-card-id').value);
+    fillSelect(
+      $('#tx-card-id'),
+      buildVisibleCardOptions({
+        emptyLabel: 'Selecciona una tarjeta',
+        selectedCardId: selectedCardId || $('#tx-card-id').value
+      }),
+      selectedCardId || $('#tx-card-id').value
+    );
     fillSelect(
       $('#tx-linked-debt'),
       [{ value: '', label: 'Selecciona una deuda' }].concat(
@@ -1293,6 +1522,14 @@ const App = (() => {
       buildAccountOptions({ kinds: ['bank', 'cash'], emptyLabel: 'Selecciona una cuenta' }),
       $('#recurring-account-id').value
     );
+  }
+
+  function populateRecurringDayOptions(selectedDay = '1') {
+    const options = Array.from({ length: 28 }, (_, index) => {
+      const day = String(index + 1);
+      return { value: day, label: `Dia ${day}` };
+    });
+    fillSelect($('#recurring-day'), options, String(selectedDay || '1'));
   }
 
   function populateCardPaymentOptions() {
@@ -1375,14 +1612,57 @@ const App = (() => {
 
   function updateCardStatementOptions() {
     const cardId = $('#tx-card-id').value;
-    const openStatements = cardId ? getOpenStatementsForCard(cardId) : [];
+    const openStatements = cardId
+      ? getOpenStatementsForCard(cardId)
+          .sort((a, b) => FinanceDB.compareDate(a.dueDate || '9999-12-31', b.dueDate || '9999-12-31'))
+      : [];
     const options = [{ value: '', label: 'Aplicar al saldo pendiente mas antiguo' }].concat(
       openStatements.map((statement) => ({
         value: statement.statementCycleKey,
-        label: `${statement.label} / ${formatCurrency(statement.pendingAmount)}`
+        label: `${formatStatementLabel(statement)} / ${formatCurrency(statement.pendingAmount)}`
       }))
     );
     fillSelect($('#tx-card-statement'), options, $('#tx-card-statement').value);
+  }
+
+  function populateInstallmentCountOptions(selectedValue = '1') {
+    const options = Array.from({ length: 24 }, (_, index) => {
+      const value = String(index + 1);
+      return {
+        value,
+        label: index === 0 ? '1 cuota' : `${value} cuotas`
+      };
+    });
+    fillSelect($('#tx-installment-count'), options, String(selectedValue || '1'));
+  }
+
+  function updateInstallmentPreview() {
+    const preview = $('#tx-installment-preview');
+    if (!preview) return;
+    const type = $('#tx-type').value || 'expense';
+    if (type !== 'card_charge') {
+      preview.textContent = 'Las cuotas solo aplican a compras con tarjeta.';
+      return;
+    }
+
+    const card = getCardMap().get($('#tx-card-id').value || '');
+    const rawDate = $('#tx-date').value || getTodayDate();
+    const amount = parseFloat($('#tx-amount').value || '0') || 0;
+    const installmentCount = Math.max(1, parseInt($('#tx-installment-count').value || '1', 10) || 1);
+    if (!card) {
+      preview.textContent = 'Elige una tarjeta para calcular el primer cierre y el sueldo al que ira la compra.';
+      return;
+    }
+
+    const firstClosing = FinanceDB.getStatementClosingDate(rawDate, card.closingDay);
+    const lastClosing = FinanceDB.addMonths(firstClosing, installmentCount - 1, card.closingDay);
+    const projectedCycle = [...getSnapshot().cycles]
+      .sort((a, b) => FinanceDB.compareDate(a.startDate, b.startDate))
+      .find((cycle) => FinanceDB.compareDate(cycle.startDate, firstClosing) >= 0) || null;
+    const perInstallment = installmentCount > 0 ? FinanceDB.roundAmount(amount / installmentCount) : 0;
+    preview.textContent = installmentCount === 1
+      ? `Ira al cierre del ${formatDate(firstClosing)} y se cubrira con ${projectedCycle ? getCycleLabelById(projectedCycle.id) : 'el siguiente sueldo disponible'}.`
+      : `Se crearan ${installmentCount} cuotas. La primera cierra el ${formatDate(firstClosing)}, la ultima el ${formatDate(lastClosing)}. Monto aproximado por cuota: ${formatCurrency(perInstallment)}.`;
   }
 
   function updateTransactionFields() {
@@ -1391,6 +1671,7 @@ const App = (() => {
     const toField = $('#field-tx-to-account');
     const categoryField = $('#field-tx-category');
     const linkedRow = $('#transaction-linked-row');
+    const installmentsRow = $('#tx-installments-row');
     const cardField = $('#field-tx-card');
     const statementField = $('#field-tx-card-statement');
     const debtField = $('#field-tx-linked-debt');
@@ -1398,6 +1679,7 @@ const App = (() => {
 
     [fromField, toField, categoryField].forEach((field) => field.classList.remove('hidden'));
     linkedRow.classList.add('hidden');
+    installmentsRow.classList.add('hidden');
     [cardField, statementField, debtField, goalField].forEach((field) => field.classList.add('hidden'));
 
     if (type === 'expense') {
@@ -1410,6 +1692,7 @@ const App = (() => {
       fromField.classList.add('hidden');
       toField.classList.add('hidden');
       linkedRow.classList.remove('hidden');
+      installmentsRow.classList.remove('hidden');
       cardField.classList.remove('hidden');
     } else if (type === 'card_payment') {
       toField.classList.add('hidden');
@@ -1430,12 +1713,14 @@ const App = (() => {
 
     updateTransactionCategoryOptions();
     updateCardStatementOptions();
+    updateInstallmentPreview();
   }
 
   function updateRecurringFields() {
     const isPrimarySalary = $('#recurring-is-primary-salary').checked;
     const type = $('#recurring-type').value;
     const categoryField = $('#field-recurring-category');
+    const endMonthLabel = $('#recurring-end-month-label');
 
     if (type !== 'income' && isPrimarySalary) {
       $('#recurring-is-primary-salary').checked = false;
@@ -1449,17 +1734,25 @@ const App = (() => {
     }
 
     const desiredType = $('#recurring-type').value === 'income' ? 'income' : 'expense';
+    endMonthLabel.textContent = desiredType === 'income' ? 'Hasta que mes llega' : 'Hasta que mes se paga';
     const options = getSnapshot().categories
       .filter((item) => item.type === desiredType)
       .map((item) => ({ value: item.id, label: item.name }));
     fillSelect($('#recurring-category-id'), options, $('#recurring-category-id').value || (desiredType === 'income' ? 'other-income' : 'other-expense'));
   }
 
+  let previouslyFocusedElement = null;
+
   function openModal(id) {
     const modal = document.getElementById(id);
     if (!modal) return;
+    previouslyFocusedElement = document.activeElement;
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
+    const firstFocusable = modal.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (firstFocusable) {
+      requestAnimationFrame(() => firstFocusable.focus());
+    }
   }
 
   function closeModal(id) {
@@ -1467,6 +1760,10 @@ const App = (() => {
     if (!modal) return;
     modal.classList.remove('active');
     document.body.style.overflow = '';
+    if (previouslyFocusedElement && typeof previouslyFocusedElement.focus === 'function') {
+      previouslyFocusedElement.focus();
+      previouslyFocusedElement = null;
+    }
   }
 
   function openConfirm({ title, text, onAccept }) {
@@ -1514,12 +1811,14 @@ const App = (() => {
     $('#tx-description').value = base.description || '';
     $('#tx-notes').value = base.notes || '';
     populateTransactionFormOptions();
+    populateInstallmentCountOptions(base.installmentCount || 1);
     $('#tx-category').value = base.categoryId || $('#tx-category').value;
     $('#tx-from-account').value = base.fromAccountId || $('#tx-from-account').value;
     $('#tx-to-account').value = base.toAccountId || $('#tx-to-account').value;
     $('#tx-card-id').value = base.cardId || '';
     updateCardStatementOptions();
     $('#tx-card-statement').value = base.statementCycleKey || '';
+    $('#tx-installment-count').value = String(base.installmentCount || 1);
     $('#tx-linked-debt').value = base.linkedEntityType === 'debt' ? base.linkedEntityId || '' : '';
     $('#tx-linked-goal').value = base.linkedEntityType === 'goal' ? base.linkedEntityId || '' : '';
     updateTransactionFields();
@@ -1558,7 +1857,8 @@ const App = (() => {
     $('#card-due-day').value = card?.dueDay || 25;
     populateCardPaymentOptions();
     $('#card-payment-account-id').value = card?.paymentAccountId || '';
-    $('#card-opening-balance').value = card ? FinanceDB.roundAmount(card.openingBalance || 0) : 0;
+    $('#card-credit-limit').value = card ? FinanceDB.roundAmount(card.creditLimit || 0) : '';
+    $('#card-opening-debt').value = card ? FinanceDB.roundAmount(card.openingDebtAmount || 0) : 0;
     $('#card-archived').checked = card?.archived || false;
     openModal('modal-card');
   }
@@ -1606,7 +1906,9 @@ const App = (() => {
     form.dataset.editId = recurring?.id || '';
     $('#recurring-modal-title').textContent = recurring ? 'Editar recurrente' : 'Nuevo recurrente';
     $('#recurring-type').value = recurring?.type || 'expense';
-    $('#recurring-day').value = recurring?.dayOfMonth || 1;
+    populateRecurringDayOptions(recurring?.dayOfMonth || 1);
+    $('#recurring-start-date').value = recurring?.startDate || '';
+    $('#recurring-end-month').value = recurring?.endMonth || '';
     $('#recurring-amount').value = recurring ? FinanceDB.roundAmount(recurring.amount) : '';
     $('#recurring-description').value = recurring?.description || '';
     populateRecurringAccountOptions();
@@ -1622,17 +1924,29 @@ const App = (() => {
   function openCardStatementsModal(cardId) {
     const card = getCardMap().get(cardId);
     if (!card) return;
-    $('#card-statements-title').textContent = `Estados de ${card.label}`;
+    $('#card-statements-title').textContent = `Estados de ${getCardLabel(cardId)}`;
     const statements = getCardStatements(cardId);
     $('#card-statements-body').innerHTML = statements.length
       ? statements
           .map((statement) => `
             <div class="detail-card">
-              <strong>${escapeHtml(statement.label || 'Saldo migrado')}</strong>
-              <p>${statement.closingDate ? `Cierra ${escapeHtml(formatDate(statement.closingDate))}` : 'Saldo previo migrado'}</p>
+              <strong>${escapeHtml(formatStatementLabel(statement))}</strong>
+              <p>${statement.closingDate ? `Cierra ${escapeHtml(formatDate(statement.closingDate))}` : 'Deuda previa al uso de la app'}</p>
               <p>${statement.dueDate ? `Vence ${escapeHtml(formatDate(statement.dueDate))}` : 'Sin fecha de pago registrada'}</p>
               <p>Cargado ${escapeHtml(formatCurrency(statement.chargedAmount))} / Pagado ${escapeHtml(formatCurrency(statement.paidAmount))} / Pendiente ${escapeHtml(formatCurrency(statement.pendingAmount))}</p>
-              <p>${escapeHtml(statement.budgetCycleId ? getCycleLabelById(statement.budgetCycleId) : 'Sin ciclo asignado')}</p>
+              <p>${escapeHtml(statement.budgetCycleId ? getCycleLabelById(statement.budgetCycleId) : 'Sin sueldo asignado aun')}</p>
+              ${statement.purchases?.length ? `
+                <div class="detail-list">
+                  ${statement.purchases
+                    .map((purchase) => `
+                      <div class="detail-list-row">
+                        <strong>${escapeHtml(purchase.description)}</strong>
+                        <span>${escapeHtml(formatCurrency(purchase.amount))} ${escapeHtml(formatInstallmentLabel(purchase) || '')}</span>
+                      </div>
+                    `)
+                    .join('')}
+                </div>
+              ` : ''}
             </div>
           `)
           .join('')
@@ -1643,6 +1957,13 @@ const App = (() => {
   function renderTransactionDetail(transaction) {
     const cycleLabel = transaction.budgetCycleId ? getCycleLabelById(transaction.budgetCycleId) : 'Sin ciclo';
     const body = $('#detail-body');
+    const purchaseDate = transaction.purchaseDate || transaction.date;
+    const groupedInstallment = isInstallmentGroupTransaction(transaction);
+    const statement = transaction.statementCycleKey
+      ? getSnapshot().statements.find(
+          (item) => item.cardId === transaction.cardId && item.statementCycleKey === transaction.statementCycleKey
+        ) || null
+      : null;
     $('#detail-title').textContent = transaction.description;
     body.innerHTML = `
       <div class="detail-card">
@@ -1651,7 +1972,7 @@ const App = (() => {
       </div>
       <div class="detail-card">
         <strong>Fecha real</strong>
-        <p>${escapeHtml(formatLongDate(transaction.date))}</p>
+        <p>${escapeHtml(formatLongDate(purchaseDate))}</p>
       </div>
       <div class="detail-card">
         <strong>Ciclo al que pertenece</strong>
@@ -1668,7 +1989,13 @@ const App = (() => {
       ${transaction.statementCycleKey ? `
         <div class="detail-card">
           <strong>Estado de cuenta</strong>
-          <p>${escapeHtml(formatDate(transaction.statementCycleKey))}</p>
+          <p>${escapeHtml(statement ? formatStatementLabel(statement) : formatDate(transaction.statementCycleKey))}</p>
+        </div>
+      ` : ''}
+      ${transaction.type === 'card_charge' ? `
+        <div class="detail-card">
+          <strong>Cuotas</strong>
+          <p>${escapeHtml(formatInstallmentLabel(transaction))} / compra total ${escapeHtml(formatCurrency(transaction.originalPurchaseAmount || transaction.amount))}</p>
         </div>
       ` : ''}
       <div class="detail-card">
@@ -1682,10 +2009,14 @@ const App = (() => {
         </div>
       ` : ''}
     `;
+    $('#btn-detail-edit').disabled = groupedInstallment;
+    $('#btn-detail-edit').title = groupedInstallment
+      ? 'Las compras en cuotas se vuelven a registrar completas si necesitas corregirlas.'
+      : '';
   }
 
   function syncThemeMeta(theme) {
-    const themeColor = theme === 'light' ? '#f4eee4' : '#05070b';
+    const themeColor = theme === 'light' ? '#F5F3F7' : '#000000';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
       meta.setAttribute('content', themeColor);
@@ -1715,14 +2046,15 @@ const App = (() => {
   }
 
   function draftToPreset(draft) {
+    const fallbackAccountId = getSnapshot().accounts.find((a) => a.kind === 'bank' && !a.archived)?.id || getSnapshot().accounts[0]?.id || '';
     return {
       type: draft.suggestedType,
       amount: draft.amount,
       date: draft.date,
       description: draft.description,
       categoryId: draft.categoryId,
-      fromAccountId: draft.suggestedType === 'expense' ? resolveAccountIdFromHint(draft.accountHint) || 'bank-main' : '',
-      toAccountId: draft.suggestedType === 'income' ? resolveAccountIdFromHint(draft.accountHint) || 'bank-main' : '',
+      fromAccountId: draft.suggestedType === 'expense' ? resolveAccountIdFromHint(draft.accountHint) || fallbackAccountId : '',
+      toAccountId: draft.suggestedType === 'income' ? resolveAccountIdFromHint(draft.accountHint) || fallbackAccountId : '',
       notes: [draft.notes, draft.debtHint ? `Posible deuda: ${draft.debtHint}` : '', `Confianza IA: ${draft.confidence}`]
         .filter(Boolean)
         .join(' / '),
@@ -1730,11 +2062,30 @@ const App = (() => {
     };
   }
 
+  async function withFormLock(form, fn) {
+    const submitButton = form.querySelector('[type="submit"], .btn-primary');
+    if (submitButton?.disabled) return;
+    const originalText = submitButton?.textContent || '';
+    try {
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = 'Guardando...';
+      }
+      await fn();
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalText;
+      }
+    }
+  }
+
   async function handleTransactionSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
 
-    try {
+    await withFormLock(form, async () => {
+      try {
       const type = $('#tx-type').value;
       const payload = {
         id: form.dataset.editId || '',
@@ -1747,6 +2098,7 @@ const App = (() => {
         toAccountId: $('#tx-to-account').value,
         cardId: $('#tx-card-id').value,
         statementCycleKey: $('#tx-card-statement').value,
+        installmentCount: $('#tx-installment-count').value,
         linkedEntityId:
           type === 'debt_payment'
             ? $('#tx-linked-debt').value
@@ -1766,6 +2118,7 @@ const App = (() => {
       if (type === 'card_charge') {
         payload.fromAccountId = '';
         payload.toAccountId = '';
+        payload.purchaseDate = payload.date;
       }
       if (type === 'card_payment') {
         payload.linkedEntityId = '';
@@ -1782,6 +2135,7 @@ const App = (() => {
     } catch (error) {
       showToast(error.message, 'error');
     }
+    });
   }
 
   async function handleAISubmit(event) {
@@ -1825,7 +2179,7 @@ const App = (() => {
   async function handleAccountSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
+    await withFormLock(form, async () => { try {
       await FinanceDB.saveAccount({
         id: form.dataset.editId || '',
         name: $('#account-name').value.trim(),
@@ -1840,12 +2194,13 @@ const App = (() => {
     } catch (error) {
       showToast(error.message, 'error');
     }
+    });
   }
 
   async function handleCardSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
+    await withFormLock(form, async () => { try {
       await FinanceDB.saveCard({
         id: form.dataset.editId || '',
         bankName: $('#card-bank-name').value.trim(),
@@ -1853,7 +2208,8 @@ const App = (() => {
         closingDay: $('#card-closing-day').value,
         dueDay: $('#card-due-day').value,
         paymentAccountId: $('#card-payment-account-id').value,
-        openingBalance: $('#card-opening-balance').value,
+        creditLimit: $('#card-credit-limit').value,
+        openingDebtAmount: $('#card-opening-debt').value,
         archived: $('#card-archived').checked
       });
       closeModal('modal-card');
@@ -1862,12 +2218,13 @@ const App = (() => {
     } catch (error) {
       showToast(error.message, 'error');
     }
+    });
   }
 
   async function handleGoalSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
+    await withFormLock(form, async () => { try {
       await FinanceDB.saveGoal({
         id: form.dataset.editId || '',
         name: $('#goal-name').value.trim(),
@@ -1883,12 +2240,13 @@ const App = (() => {
     } catch (error) {
       showToast(error.message, 'error');
     }
+    });
   }
 
   async function handleDebtSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
+    await withFormLock(form, async () => { try {
       await FinanceDB.saveDebt({
         id: form.dataset.editId || '',
         name: $('#debt-name').value.trim(),
@@ -1908,25 +2266,38 @@ const App = (() => {
     } catch (error) {
       showToast(error.message, 'error');
     }
+    });
   }
 
   async function handleRecurringSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    try {
+    await withFormLock(form, async () => { try {
       const isPrimarySalary = $('#recurring-is-primary-salary').checked;
-      if (isPrimarySalary && $('#recurring-type').value !== 'income') {
+      const recurringType = $('#recurring-type').value;
+      const accountId = $('#recurring-account-id').value;
+      const startDate = $('#recurring-start-date').value;
+      const endMonth = $('#recurring-end-month').value;
+      if (isPrimarySalary && recurringType !== 'income') {
         throw new Error('El sueldo principal debe ser un recurrente de ingreso.');
+      }
+      if (!accountId) {
+        throw new Error('Elige la cuenta donde cae o se paga este recurrente.');
+      }
+      if (startDate && endMonth && startDate.slice(0, 7) > endMonth) {
+        throw new Error('El mes final no puede ser anterior al inicio.');
       }
 
       await FinanceDB.saveRecurring({
         id: form.dataset.editId || '',
-        type: $('#recurring-type').value,
+        type: recurringType,
         dayOfMonth: $('#recurring-day').value,
+        startDate,
+        endMonth,
         amount: $('#recurring-amount').value,
         description: $('#recurring-description').value.trim(),
         categoryId: isPrimarySalary ? 'salary' : $('#recurring-category-id').value,
-        accountId: $('#recurring-account-id').value,
+        accountId,
         active: $('#recurring-active').checked,
         isPrimarySalary,
         opensFinancialCycle: isPrimarySalary,
@@ -1938,6 +2309,7 @@ const App = (() => {
     } catch (error) {
       showToast(error.message, 'error');
     }
+    });
   }
 
   async function handleSaveCycleConfig(event) {
@@ -2002,24 +2374,34 @@ const App = (() => {
 
     try {
       const text = await file.text();
-      await FinanceDB.importBackup(JSON.parse(text));
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('El archivo no contiene un JSON valido.');
+      }
+      const hasExpectedData = parsed.transactions || parsed.accounts || parsed.settings || parsed.categories;
+      if (!hasExpectedData) {
+        throw new Error('El archivo no parece ser un backup de Finanzas Locales. Debe contener al menos transactions, accounts, settings o categories.');
+      }
+      await FinanceDB.importBackup(parsed);
       event.target.value = '';
       closeModal('modal-settings');
       await refreshData({ preserveSelectedCycle: false });
       showToast('Backup importado', 'success');
     } catch (error) {
+      event.target.value = '';
       showToast(error.message, 'error');
     }
   }
 
   function buildCsvContent() {
     const rows = [
-      ['id', 'fecha', 'tipo', 'monto', 'descripcion', 'categoria', 'cuenta_origen', 'cuenta_destino', 'tarjeta', 'estado_cuenta', 'ciclo', 'origen']
+      ['id', 'fecha', 'fecha_compra', 'tipo', 'monto', 'descripcion', 'categoria', 'cuenta_origen', 'cuenta_destino', 'tarjeta', 'estado_cuenta', 'cuota', 'ciclo', 'origen']
     ];
     getSnapshot().transactions.forEach((transaction) => {
       rows.push([
         transaction.id,
         transaction.date,
+        transaction.purchaseDate || transaction.date,
         transaction.type,
         FinanceDB.roundAmount(transaction.amount).toFixed(2),
         transaction.description,
@@ -2028,6 +2410,7 @@ const App = (() => {
         getAccountLabel(transaction.toAccountId),
         getCardLabel(transaction.cardId),
         transaction.statementCycleKey,
+        formatInstallmentLabel(transaction),
         getCycleLabelById(transaction.budgetCycleId),
         formatSourceLabel(transaction.sourceType)
       ]);
@@ -2091,8 +2474,9 @@ const App = (() => {
           type: 'card_charge',
           cardId: card.id,
           categoryId: 'shopping',
-          description: `Compra ${card.label}`,
+          description: `Compra ${getCardLabel(card.id)}`,
           date: new Date().toISOString().slice(0, 10),
+          installmentCount: 1,
           sourceType: 'manual'
         }
       });
@@ -2105,7 +2489,7 @@ const App = (() => {
           cardId: card.id,
           fromAccountId: card.paymentAccountId || getSnapshot().settings.financialCycleConfig.sweepSourceAccountId || '',
           categoryId: 'debt-payment',
-          description: `Pago ${card.label}`,
+          description: `Pago ${getCardLabel(card.id)}`,
           date: new Date().toISOString().slice(0, 10),
           sourceType: 'manual'
         }
@@ -2192,7 +2576,44 @@ const App = (() => {
     openModal('modal-detail');
   }
 
+  function bindSwipeToDismiss() {
+    $$('.modal-handle').forEach((handle) => {
+      let startY = 0;
+      let currentY = 0;
+      let isDragging = false;
+      const overlay = handle.closest('.modal-overlay');
+      const sheet = handle.closest('.modal-sheet');
+      if (!overlay || !sheet) return;
+
+      handle.addEventListener('touchstart', (e) => {
+        startY = e.touches[0].clientY;
+        currentY = startY;
+        isDragging = true;
+        sheet.style.transition = 'none';
+      }, { passive: true });
+
+      handle.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        currentY = e.touches[0].clientY;
+        const dy = Math.max(0, currentY - startY);
+        sheet.style.transform = `translateY(${dy}px)`;
+      }, { passive: true });
+
+      handle.addEventListener('touchend', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        sheet.style.transition = '';
+        const dy = currentY - startY;
+        if (dy > 80) {
+          closeModal(overlay.id);
+        }
+        sheet.style.transform = '';
+      });
+    });
+  }
+
   function bindEvents() {
+    bindSwipeToDismiss();
     $('#fab-add').addEventListener('click', () => openModal('modal-actions'));
     $('#btn-open-actions').addEventListener('click', () => openModal('modal-actions'));
     $('#btn-open-settings').addEventListener('click', () => {
@@ -2259,9 +2680,21 @@ const App = (() => {
     $('#action-add-account').addEventListener('click', () => openAccountModal());
 
     $('#tx-type').addEventListener('change', updateTransactionFields);
-    $('#tx-card-id').addEventListener('change', updateCardStatementOptions);
+    $('#tx-card-id').addEventListener('change', () => {
+      updateCardStatementOptions();
+      updateInstallmentPreview();
+    });
+    $('#tx-date').addEventListener('change', updateInstallmentPreview);
+    $('#tx-amount').addEventListener('input', updateInstallmentPreview);
+    $('#tx-installment-count').addEventListener('change', updateInstallmentPreview);
     $('#recurring-type').addEventListener('change', updateRecurringFields);
     $('#recurring-is-primary-salary').addEventListener('change', updateRecurringFields);
+    $('#recurring-start-date').addEventListener('change', (event) => {
+      const value = event.target.value;
+      if (!value) return;
+      const day = Math.max(1, Math.min(28, parseInt(value.slice(8, 10), 10) || 1));
+      $('#recurring-day').value = String(day);
+    });
 
     $('#transaction-form').addEventListener('submit', handleTransactionSubmit);
     $('#ai-form').addEventListener('submit', handleAISubmit);
@@ -2281,6 +2714,10 @@ const App = (() => {
     $('#btn-detail-edit').addEventListener('click', () => {
       const transaction = getTransactionById(state.ui.detailTransactionId);
       if (!transaction) return;
+      if (isInstallmentGroupTransaction(transaction)) {
+        showToast('Las compras en cuotas se corrigen eliminando la compra completa y registrandola de nuevo.', 'error');
+        return;
+      }
       closeModal('modal-detail');
       openTransactionModal({ transaction });
     });
@@ -2288,9 +2725,12 @@ const App = (() => {
     $('#btn-detail-delete').addEventListener('click', () => {
       const transaction = getTransactionById(state.ui.detailTransactionId);
       if (!transaction) return;
+      const isInstallmentGroup = isInstallmentGroupTransaction(transaction);
       openConfirm({
         title: 'Eliminar movimiento',
-        text: `Se eliminara "${transaction.description}". Esta accion no se puede deshacer.`,
+        text: isInstallmentGroup
+          ? `Se eliminara la compra completa "${transaction.description}" con todas sus cuotas. Esta accion no se puede deshacer.`
+          : `Se eliminara "${transaction.description}". Esta accion no se puede deshacer.`,
         onAccept: async () => {
           await FinanceDB.deleteTransaction(transaction.id);
           closeModal('modal-detail');
@@ -2372,6 +2812,21 @@ const App = (() => {
     $$('[data-close-modal]').forEach((button) => {
       button.addEventListener('click', () => closeModal(button.dataset.closeModal));
     });
+
+    const scrollTopBtn = $('#scroll-top');
+    if (scrollTopBtn) {
+      let scrollTicking = false;
+      window.addEventListener('scroll', () => {
+        if (!scrollTicking) {
+          requestAnimationFrame(() => {
+            scrollTopBtn.classList.toggle('hidden', window.scrollY < 400);
+            scrollTicking = false;
+          });
+          scrollTicking = true;
+        }
+      }, { passive: true });
+      scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    }
   }
 
   function registerServiceWorker() {

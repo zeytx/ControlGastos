@@ -12,6 +12,7 @@ const FinanceAI = (() => {
   const ALLOWED_TYPES = ['expense', 'income'];
 
   function buildSystemPrompt(context = {}) {
+    const today = new Date().toISOString().slice(0, 10);
     const categories = (context.categories || [])
       .map((item) => `- ${item.id}: ${item.name}`)
       .join('\n');
@@ -34,13 +35,15 @@ Reglas:
 ${categories || '- other-expense: Otros gastos'}
 3. Usa solo estos tipos: ${ALLOWED_TYPES.join(', ')}.
 4. Si parece un pago, compra o salida usa "expense". Si parece deposito, abono, sueldo o reembolso a favor usa "income".
-5. Fecha en formato YYYY-MM-DD. Si falta el anio, asume ${new Date().getFullYear()}.
-6. "description" debe ser corta, humana y util, maximo 6 palabras.
-7. "accountHint" debe ser una sugerencia textual breve usando estas cuentas si aplica:
+5. Si el usuario envio dinero, por ejemplo "plinleaste a", "plineaste a", "yapeaste a", "yapear a", "enviaste a", "transferiste a", "mandaste a", entonces es "expense" y en "notes" debe decir "Transferencia enviada". Si el usuario recibio dinero, por ejemplo "te plinearon", "recibiste", "abono recibido", "deposito recibido", entonces es "income" y en "notes" debe decir "Transferencia recibida". Nunca contradigas el verbo principal.
+6. Verifica la fecha con mucho cuidado. Usa solo la fecha real visible en la evidencia. No confundas fecha de operacion con hora, fecha actual, fecha del archivo o fecha de otro movimiento. Si la evidencia esta en espanol y usa barras, interpreta DD/MM/YYYY y nunca MM/DD/YYYY. Si falta el anio, asume ${new Date().getFullYear()}. Si la fecha no es clara, usa ${today} y en "notes" empieza con "Fecha no clara".
+7. "description" debe ser corta, humana y util, maximo 6 palabras.
+8. "accountHint" debe ser una sugerencia textual breve usando estas cuentas si aplica:
 ${accounts || '- Cuenta principal (bank)'}
-8. "debtHint" solo si el texto menciona una deuda o cuota; si no, vacio.
-9. "confidence" entre 0 y 1.
-10. Si el monto no es confiable devuelve 0.
+9. La descripcion debe respetar la direccion del movimiento. Ejemplo: "Plin a Angie" es salida y no debe mapearse como ingreso.
+10. "debtHint" solo si el texto menciona una deuda o cuota; si no, vacio.
+11. "confidence" entre 0 y 1.
+12. Si el monto no es confiable devuelve 0.
 
 Formato exacto:
 {
@@ -122,22 +125,38 @@ ${debts || '- ninguna'}`;
       throw new Error('La IA no devolvio contenido util.');
     }
 
-    return parseDraft(content, context, source.sourceType);
+    return parseDraft(content, context, source.sourceType, source);
   }
 
   function buildUserPrompt(source) {
+    const today = new Date().toISOString().slice(0, 10);
     if (source.kind === 'image') {
-      return `Analiza esta imagen y sugiere un borrador financiero. Fuente: ${source.sourceType}.`;
+      return `Analiza esta imagen y sugiere un borrador financiero.
+
+Fuente: ${source.sourceType}
+Fecha actual de referencia: ${today}
+
+Antes de responder:
+- verifica si el dinero entro o salio del usuario
+- verifica la fecha exacta del movimiento con mucho cuidado
+- no confundas transferencia enviada con transferencia recibida`;
     }
 
     return `Analiza este texto y sugiere un borrador financiero.
 
 Fuente: ${source.sourceType}
+Fecha actual de referencia: ${today}
+
+Antes de responder:
+- verifica si el dinero entro o salio del usuario
+- verifica la fecha exacta del movimiento con mucho cuidado
+- si la fecha usa barras en espanol, interpretala como DD/MM/YYYY
+
 Texto:
 ${String(source.text || '').slice(0, 12000)}`;
   }
 
-  function parseDraft(rawContent, context, sourceType) {
+  function parseDraft(rawContent, context, sourceType, source = null) {
     let cleaned = rawContent.trim();
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
     cleaned = cleaned.replace(/\s*```$/i, '');
@@ -150,15 +169,31 @@ ${String(source.text || '').slice(0, 12000)}`;
     }
 
     const categoryIds = new Set((context.categories || []).map((item) => item.id));
-    const fallbackCategory = sourceType === 'text-email' ? 'other-expense' : 'other-expense';
-    const suggestedType = ALLOWED_TYPES.includes(parsed.suggestedType)
+    const transferDirection = inferTransferDirection([
+      parsed.description,
+      parsed.notes,
+      source?.kind === 'text' ? source.text : ''
+    ].join(' '));
+    let suggestedType = ALLOWED_TYPES.includes(parsed.suggestedType)
       ? parsed.suggestedType
       : DEFAULT_TYPE;
+    if (transferDirection === 'outgoing') {
+      suggestedType = 'expense';
+    } else if (transferDirection === 'incoming') {
+      suggestedType = 'income';
+    }
+    const fallbackCategory = suggestedType === 'income' ? 'other-income' : 'other-expense';
     const date = normalizeDate(parsed.date);
     const amount = roundAmount(parsed.amount);
     const categoryId = categoryIds.has(parsed.categoryId)
       ? parsed.categoryId
       : inferCategoryId(parsed.categoryId, context.categories) || fallbackCategory;
+    let notes = String(parsed.notes || '').trim().slice(0, 300);
+    if (transferDirection === 'outgoing') {
+      notes = injectDirectionNote(notes, 'Transferencia enviada');
+    } else if (transferDirection === 'incoming') {
+      notes = injectDirectionNote(notes, 'Transferencia recibida');
+    }
 
     return {
       suggestedType,
@@ -171,9 +206,49 @@ ${String(source.text || '').slice(0, 12000)}`;
       accountHint: String(parsed.accountHint || '').trim().slice(0, 60),
       debtHint: String(parsed.debtHint || '').trim().slice(0, 60),
       confidence: normalizeConfidence(parsed.confidence),
-      notes: String(parsed.notes || '').trim().slice(0, 300),
+      notes,
       sourceType
     };
+  }
+
+  function inferTransferDirection(value) {
+    const text = normalizeText(value);
+    if (!text) return '';
+
+    const outgoingPatterns = [
+      /\b(?:plinleaste|plineaste|pinleaste|yapeaste|yapear|yapearle|transferiste|enviaste|mandaste|giraste|pagaste)\b/,
+      /\b(?:plin|yape|yapear)\s+a\b/,
+      /\btransferencia\s+enviada\b/,
+      /\benviaste\s+dinero\b/
+    ];
+    const incomingPatterns = [
+      /\b(?:recibiste|recibido|te\s+plinearon|te\s+yapearon|te\s+enviaron|te\s+depositaron)\b/,
+      /\babono\s+recibido\b/,
+      /\bdeposito\s+recibido\b/,
+      /\btransferencia\s+recibida\b/
+    ];
+
+    if (outgoingPatterns.some((pattern) => pattern.test(text))) return 'outgoing';
+    if (incomingPatterns.some((pattern) => pattern.test(text))) return 'incoming';
+    return '';
+  }
+
+  function injectDirectionNote(notes, directionLabel) {
+    const clean = String(notes || '').trim();
+    if (!clean) return directionLabel;
+    if (/transferencia\s+(enviada|recibida)/i.test(clean)) {
+      return clean.replace(/transferencia\s+(enviada|recibida)/i, directionLabel).slice(0, 300);
+    }
+    return `${directionLabel} / ${clean}`.slice(0, 300);
+  }
+
+  function normalizeText(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function inferCategoryId(value, categories = []) {

@@ -125,6 +125,10 @@ const FinanceDB = (() => {
     return normalizeDate(a).localeCompare(normalizeDate(b));
   }
 
+  function maxDate(a, b) {
+    return compareDate(a, b) >= 0 ? normalizeDate(a) : normalizeDate(b);
+  }
+
   function addDays(value, days) {
     const date = new Date(`${normalizeDate(value)}T12:00:00`);
     date.setDate(date.getDate() + days);
@@ -148,6 +152,49 @@ const FinanceDB = (() => {
 
   function getToday() {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  function getMostRecentOccurrence(dayOfMonth, referenceDate = getToday()) {
+    const normalized = normalizeDate(referenceDate);
+    const year = parseInt(normalized.slice(0, 4), 10);
+    const month = parseInt(normalized.slice(5, 7), 10);
+    const day = parseInt(normalized.slice(8, 10), 10);
+    const clampedDay = clampDay(dayOfMonth, 1);
+
+    if (day >= clampedDay) {
+      return new Date(year, month - 1, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+    }
+
+    return new Date(year, month - 2, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+  }
+
+  function getNextOccurrence(dayOfMonth, referenceDate = getToday()) {
+    const normalized = normalizeDate(referenceDate);
+    const year = parseInt(normalized.slice(0, 4), 10);
+    const month = parseInt(normalized.slice(5, 7), 10);
+    const day = parseInt(normalized.slice(8, 10), 10);
+    const clampedDay = clampDay(dayOfMonth, 1);
+
+    if (day <= clampedDay) {
+      return new Date(year, month - 1, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+    }
+
+    return new Date(year, month, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+  }
+
+  function resolveDefaultRecurringStartDate(input = {}, existing = null) {
+    const raw = String(input.startDate ?? existing?.startDate ?? '').trim();
+    if (raw) return normalizeDate(raw);
+
+    const dayOfMonth = clampDay(input.dayOfMonth ?? existing?.dayOfMonth ?? 1, 1);
+    const isPrimarySalary = !!(input.isPrimarySalary ?? existing?.isPrimarySalary);
+    const opensFinancialCycle = input.opensFinancialCycle ?? existing?.opensFinancialCycle ?? isPrimarySalary;
+
+    if (isPrimarySalary || opensFinancialCycle) {
+      return getMostRecentOccurrence(dayOfMonth);
+    }
+
+    return getNextOccurrence(dayOfMonth);
   }
 
   function parseJson(value, fallback) {
@@ -383,11 +430,20 @@ const FinanceDB = (() => {
   function normalizeRecurring(input = {}, existing = null) {
     const now = new Date().toISOString();
     const type = input.type === 'income' ? 'income' : 'expense';
+    const startDate = resolveDefaultRecurringStartDate(input, existing);
+    const endMonthRaw = String(input.endMonth ?? existing?.endMonth ?? '').trim();
+    const endMonth = /^\d{4}-\d{2}$/.test(endMonthRaw)
+      ? endMonthRaw
+      : /^\d{4}-\d{2}-\d{2}$/.test(endMonthRaw)
+        ? endMonthRaw.slice(0, 7)
+        : '';
     return {
       id: String(input.id || existing?.id || createId('rec')).trim(),
       type,
       amount: roundAmount(input.amount ?? existing?.amount ?? 0),
       dayOfMonth: clampDay(input.dayOfMonth ?? existing?.dayOfMonth ?? 1),
+      startDate,
+      endMonth,
       description: String(input.description || existing?.description || 'Recurrente').trim().slice(0, 80),
       categoryId: String(input.categoryId ?? existing?.categoryId ?? '').trim(),
       accountId: String(input.accountId ?? existing?.accountId ?? '').trim(),
@@ -406,17 +462,27 @@ const FinanceDB = (() => {
     const bankName = String(input.bankName || existing?.bankName || '').trim() || 'Pendiente';
     const last4Raw = String(input.last4 || existing?.last4 || '').replace(/\D/g, '').slice(-4);
     const last4 = last4Raw.padStart(4, '0');
+    const creditLimit = roundAmount(input.creditLimit ?? existing?.creditLimit ?? 0);
+    const openingDebtAmount = roundAmount(
+      input.openingDebtAmount ??
+      input.openingBalance ??
+      existing?.openingDebtAmount ??
+      existing?.openingBalance ??
+      0
+    );
+    const needsReview = !!(input.needsReview ?? (creditLimit <= 0));
     return {
       id: String(input.id || existing?.id || createId('card')).trim(),
       bankName,
       last4,
-      label: `${bankName} • ${last4}`,
+      label: `${bankName} \u2022 ${last4}`,
       closingDay: clampDay(input.closingDay ?? existing?.closingDay ?? 10, 10),
       dueDay: clampDay(input.dueDay ?? existing?.dueDay ?? 25, 25),
       paymentAccountId: String(input.paymentAccountId ?? existing?.paymentAccountId ?? '').trim(),
       archived: !!(input.archived ?? existing?.archived),
-      needsReview: !!(input.needsReview ?? existing?.needsReview),
-      openingBalance: roundAmount(input.openingBalance ?? existing?.openingBalance ?? 0),
+      needsReview,
+      creditLimit,
+      openingDebtAmount,
       createdAt: existing?.createdAt || input.createdAt || now,
       updatedAt: now
     };
@@ -448,6 +514,14 @@ const FinanceDB = (() => {
     const sourceType = CARD_SOURCE_TYPES.has(input.sourceType) || String(input.sourceType || '').includes('image')
       ? input.sourceType || existing?.sourceType || 'manual'
       : existing?.sourceType || 'manual';
+    const rawInstallmentCount = parseInt(input.installmentCount ?? existing?.installmentCount ?? 0, 10) || 0;
+    const normalizedInstallmentCount = type === 'card_charge'
+      ? Math.max(1, rawInstallmentCount || 1)
+      : 0;
+    const rawInstallmentIndex = parseInt(input.installmentIndex ?? existing?.installmentIndex ?? 0, 10) || 0;
+    const normalizedInstallmentIndex = type === 'card_charge'
+      ? Math.max(1, rawInstallmentIndex || 1)
+      : 0;
     const normalized = {
       id: String(input.id || existing?.id || createId('tx')).trim(),
       type,
@@ -466,6 +540,20 @@ const FinanceDB = (() => {
       cardId: String(input.cardId ?? existing?.cardId ?? '').trim(),
       statementCycleKey: String(input.statementCycleKey ?? existing?.statementCycleKey ?? '').trim(),
       budgetCycleId: String(input.budgetCycleId ?? existing?.budgetCycleId ?? '').trim(),
+      purchaseDate: type === 'card_charge'
+        ? normalizeDate(input.purchaseDate ?? existing?.purchaseDate ?? date)
+        : '',
+      installmentGroupId: type === 'card_charge'
+        ? String(input.installmentGroupId ?? existing?.installmentGroupId ?? '').trim()
+        : '',
+      installmentIndex: normalizedInstallmentIndex,
+      installmentCount: normalizedInstallmentCount,
+      originalPurchaseAmount: type === 'card_charge'
+        ? roundAmount(input.originalPurchaseAmount ?? input.amount ?? existing?.originalPurchaseAmount ?? existing?.amount ?? 0)
+        : 0,
+      installmentAmount: type === 'card_charge'
+        ? roundAmount(input.installmentAmount ?? input.amount ?? existing?.installmentAmount ?? existing?.amount ?? 0)
+        : 0,
       recurringOccurrenceKey: String(input.recurringOccurrenceKey ?? existing?.recurringOccurrenceKey ?? '').trim(),
       autoGenerated: !!(input.autoGenerated ?? existing?.autoGenerated),
       systemTag: String(input.systemTag ?? existing?.systemTag ?? '').trim(),
@@ -478,6 +566,14 @@ const FinanceDB = (() => {
     if (type === 'card_charge') {
       normalized.fromAccountId = '';
       normalized.toAccountId = '';
+      normalized.purchaseDate = normalizeDate(normalized.purchaseDate || normalized.date);
+      normalized.installmentCount = Math.max(1, normalized.installmentCount || 1);
+      normalized.installmentIndex = Math.min(
+        Math.max(1, normalized.installmentIndex || 1),
+        normalized.installmentCount
+      );
+      normalized.originalPurchaseAmount = roundAmount(normalized.originalPurchaseAmount || normalized.amount);
+      normalized.installmentAmount = roundAmount(normalized.installmentAmount || normalized.amount);
     }
     if (type === 'card_payment') {
       normalized.toAccountId = '';
@@ -601,14 +697,23 @@ const FinanceDB = (() => {
     });
   }
 
-  function getRangeBounds(transactions) {
+  function getRecurringProjectionBounds(recurring, transactions) {
     const today = getToday();
-    const dated = transactions.map((item) => item.date).filter(Boolean).sort(compareDate);
-    const first = dated[0] || today;
-    const last = dated[dated.length - 1] || today;
+    const authoredDates = transactions
+      .filter((item) => !item.recurringOccurrenceKey && item.systemTag !== 'cycle_sweep')
+      .map((item) => item.statementCycleKey ? maxDate(item.statementCycleKey, item.date) : item.date)
+      .filter(Boolean)
+      .sort(compareDate);
+    const recurringDates = recurring
+      .map((item) => item.startDate)
+      .filter(Boolean)
+      .sort(compareDate);
+    const first = authoredDates[0] || recurringDates[0] || today;
+    const latestAuthored = authoredDates[authoredDates.length - 1] || today;
+    const baseStart = compareDate(first, today) < 0 ? first : today;
     return {
-      startDate: addMonths(first, -2, 1),
-      endDate: addMonths(last > today ? last : today, 12, 28)
+      startDate: addMonths(baseStart, -1, 1),
+      endDate: maxDate(addMonths(today, 2, 28), addMonths(latestAuthored, 1, 28))
     };
   }
 
@@ -621,7 +726,15 @@ const FinanceDB = (() => {
     }
   }
 
-  function materializeRecurringTransactions(recurring, transactions) {
+  function resolveRecurringAccountId(item, settings) {
+    if (item.accountId) return item.accountId;
+    if (item.type === 'income') {
+      return settings?.financialCycleConfig?.sweepSourceAccountId || 'bank-main';
+    }
+    return '';
+  }
+
+  function materializeRecurringTransactions(recurring, transactions, settings) {
     const byKey = new Map(
       transactions
         .filter((item) => item.recurringOccurrenceKey)
@@ -629,13 +742,16 @@ const FinanceDB = (() => {
     );
     const activeRecurringIds = new Set(recurring.filter((item) => item.active).map((item) => item.id));
     const results = [];
-    const { startDate, endDate } = getRangeBounds(transactions);
+    const { startDate, endDate } = getRecurringProjectionBounds(recurring, transactions);
 
     recurring
       .filter((item) => item.active)
       .forEach((item) => {
+        const resolvedAccountId = resolveRecurringAccountId(item, settings);
         eachMonth(startDate, endDate, (monthStart) => {
           const occurrenceDate = addMonths(monthStart, 0, item.dayOfMonth);
+          if (item.startDate && compareDate(occurrenceDate, item.startDate) < 0) return;
+          if (item.endMonth && getYearMonth(occurrenceDate) > item.endMonth) return;
           const key = `${item.id}@${occurrenceDate}`;
           const existing = byKey.get(key) || null;
           const payload = normalizeTransaction(
@@ -646,8 +762,8 @@ const FinanceDB = (() => {
               date: occurrenceDate,
               description: item.description,
               categoryId: item.categoryId || (item.type === 'income' ? 'salary' : 'other-expense'),
-              fromAccountId: item.type === 'expense' ? item.accountId : '',
-              toAccountId: item.type === 'income' ? item.accountId : '',
+              fromAccountId: item.type === 'expense' ? resolvedAccountId : '',
+              toAccountId: item.type === 'income' ? resolvedAccountId : '',
               linkedEntityType: 'recurring',
               linkedEntityId: item.id,
               sourceType: 'recurring',
@@ -702,13 +818,14 @@ const FinanceDB = (() => {
         ? nextSalaryTransaction.date
         : nextExpectedSalaryDate(salaryTransaction.date, primarySalaryRecurring);
       const endDate = addDays(nextStartDate, -1);
+      const today = getToday();
       return normalizeCycle({
         id: `cycle-${salaryTransaction.id}`,
         salaryRecurringId: primarySalaryRecurring.id,
         salaryTransactionId: salaryTransaction.id,
         startDate: salaryTransaction.date,
         endDate,
-        status: nextSalaryTransaction ? 'closed' : 'open',
+        status: compareDate(endDate, today) < 0 ? 'closed' : 'open',
         sweepTransferId: '',
         savingsAccountId: settings.financialCycleConfig.savingsAccountId,
         liquidAccountIds: settings.financialCycleConfig.liquidAccountIds
@@ -740,6 +857,20 @@ const FinanceDB = (() => {
     return current.toISOString().slice(0, 10);
   }
 
+  function getUpcomingStatementClosingDate(referenceDate, closingDay) {
+    const normalized = normalizeDate(referenceDate);
+    const year = parseInt(normalized.slice(0, 4), 10);
+    const month = parseInt(normalized.slice(5, 7), 10);
+    const day = parseInt(normalized.slice(8, 10), 10);
+    const closing = clampDay(closingDay, 10);
+
+    if (day <= closing) {
+      return new Date(year, month - 1, closing, 12, 0, 0).toISOString().slice(0, 10);
+    }
+
+    return new Date(year, month, closing, 12, 0, 0).toISOString().slice(0, 10);
+  }
+
   function getNextDueDate(closingDate, dueDay) {
     const closing = new Date(`${normalizeDate(closingDate)}T12:00:00`);
     const closingMonth = closing.getMonth();
@@ -753,6 +884,56 @@ const FinanceDB = (() => {
     return nextMonthCandidate.toISOString().slice(0, 10);
   }
 
+  function getRelevantCycle(cycles, referenceDate = getToday()) {
+    const sortedCycles = [...cycles].sort((a, b) => compareDate(a.startDate, b.startDate));
+    return (
+      sortedCycles.find((cycle) => compareDate(cycle.startDate, referenceDate) <= 0 && compareDate(referenceDate, cycle.endDate) <= 0) ||
+      sortedCycles.find((cycle) => compareDate(cycle.startDate, referenceDate) >= 0) ||
+      sortedCycles[sortedCycles.length - 1] ||
+      null
+    );
+  }
+
+  function getNextCycle(cycles, baseCycle) {
+    if (!baseCycle) return null;
+    return [...cycles]
+      .sort((a, b) => compareDate(a.startDate, b.startDate))
+      .find((cycle) => compareDate(cycle.startDate, baseCycle.startDate) > 0) || null;
+  }
+
+  function splitInstallmentAmounts(totalAmount, count) {
+    const safeCount = Math.max(1, parseInt(count, 10) || 1);
+    const totalCents = Math.round(roundAmount(totalAmount) * 100);
+    const baseCents = Math.floor(totalCents / safeCount);
+    const remainder = totalCents - baseCents * safeCount;
+    return Array.from({ length: safeCount }, (_, index) => {
+      const cents = index === safeCount - 1 ? baseCents + remainder : baseCents;
+      return roundAmount(cents / 100);
+    });
+  }
+
+  function buildInstallmentTransactions(record, card) {
+    const purchaseDate = normalizeDate(record.purchaseDate || record.date);
+    const installmentCount = Math.max(1, record.installmentCount || 1);
+    const installmentGroupId = record.installmentGroupId || createId('inst');
+    const firstClosingDate = getStatementClosingDate(purchaseDate, card.closingDay);
+    const installmentAmounts = splitInstallmentAmounts(record.originalPurchaseAmount || record.amount, installmentCount);
+
+    return installmentAmounts.map((amount, index) => normalizeTransaction({
+      ...record,
+      id: '',
+      date: purchaseDate,
+      purchaseDate,
+      amount,
+      installmentAmount: amount,
+      originalPurchaseAmount: record.originalPurchaseAmount || record.amount,
+      installmentGroupId,
+      installmentIndex: index + 1,
+      installmentCount,
+      statementCycleKey: addMonths(firstClosingDate, index, card.closingDay)
+    }));
+  }
+
   function assignBudgetCycles(transactions, cards, cycles) {
     const cardMap = new Map(cards.map((item) => [item.id, item]));
     const sortedCycles = [...cycles].sort((a, b) => compareDate(a.startDate, b.startDate));
@@ -762,7 +943,7 @@ const FinanceDB = (() => {
       if (draft.type === 'card_charge' && draft.cardId) {
         const card = cardMap.get(draft.cardId);
         if (card) {
-          const closingDate = getStatementClosingDate(draft.date, card.closingDay);
+          const closingDate = draft.statementCycleKey || getStatementClosingDate(draft.date, card.closingDay);
           const budgetCycle =
             sortedCycles.find((cycle) => compareDate(cycle.startDate, closingDate) >= 0) ||
             sortedCycles[sortedCycles.length - 1] ||
@@ -810,8 +991,7 @@ const FinanceDB = (() => {
       transactions.filter(
         (item) =>
           item.type === 'card_charge' &&
-          item.cardId &&
-          (!cutoffDate || compareDate(item.date, cutoffDate) < 0)
+          item.cardId
       )
     );
     const payments = sortByDateAsc(
@@ -826,7 +1006,7 @@ const FinanceDB = (() => {
     const statementsMap = new Map();
 
     cards.forEach((card) => {
-      if (card.openingBalance > 0) {
+      if (card.openingDebtAmount > 0) {
         const key = `legacy-${card.id}`;
         statementsMap.set(key, {
           id: key,
@@ -837,11 +1017,12 @@ const FinanceDB = (() => {
           periodStart: '',
           periodEnd: '',
           budgetCycleId: '',
-          chargedAmount: roundAmount(card.openingBalance),
+          chargedAmount: roundAmount(card.openingDebtAmount),
           paidAmount: 0,
-          pendingAmount: roundAmount(card.openingBalance),
+          pendingAmount: roundAmount(card.openingDebtAmount),
           purchases: [],
-          label: 'Saldo migrado'
+          label: 'Deuda inicial',
+          kind: 'opening-debt'
         });
       }
     });
@@ -849,7 +1030,8 @@ const FinanceDB = (() => {
     charges.forEach((charge) => {
       const card = cards.find((item) => item.id === charge.cardId);
       if (!card) return;
-      const closingDate = charge.statementCycleKey || getStatementClosingDate(charge.date, card.closingDay);
+      const closingDate = charge.statementCycleKey || getStatementClosingDate(charge.purchaseDate || charge.date, card.closingDay);
+      if (cutoffDate && compareDate(closingDate, cutoffDate) >= 0) return;
       const key = `${charge.cardId}@${closingDate}`;
       const periodStart = addMonths(closingDate, -1, card.closingDay);
       const periodEnd = addDays(closingDate, -1);
@@ -867,7 +1049,8 @@ const FinanceDB = (() => {
           paidAmount: 0,
           pendingAmount: 0,
           purchases: [],
-          label: `${periodStart} - ${periodEnd}`
+          label: `${periodStart} - ${periodEnd}`,
+          kind: 'statement'
         });
       }
       const statement = statementsMap.get(key);
@@ -915,9 +1098,11 @@ const FinanceDB = (() => {
 
   function getDebtDueDatesWithinCycle(cycle, debt) {
     const dates = [];
-    let cursor = normalizeDate(cycle.startDate);
-    while (compareDate(cursor, cycle.endDate) <= 0) {
-      const dueDate = addMonths(cursor.slice(0, 7) + '-01', 0, debt.dueDay);
+    const startMonth = cycle.startDate.slice(0, 7) + '-01';
+    const endMonth = cycle.endDate.slice(0, 7) + '-01';
+    let cursor = startMonth;
+    while (compareDate(cursor, endMonth) <= 0) {
+      const dueDate = addMonths(cursor, 0, debt.dueDay);
       if (
         compareDate(dueDate, cycle.startDate) >= 0 &&
         compareDate(dueDate, cycle.endDate) <= 0 &&
@@ -925,7 +1110,7 @@ const FinanceDB = (() => {
       ) {
         dates.push(dueDate);
       }
-      cursor = addMonths(cursor.slice(0, 7) + '-01', 1, 1);
+      cursor = addMonths(cursor, 1, 1);
     }
     return dates;
   }
@@ -1007,7 +1192,7 @@ const FinanceDB = (() => {
 
       cycle.pendingCardAmount = pendingCards;
       cycle.pendingDebtAmount = pendingDebts;
-      cycle.freeNetAmount = Math.max(0, freeNet);
+      cycle.freeNetAmount = roundAmount(Math.max(0, freeNet));
       cycle.sweptAmount = 0;
 
       if (sweepAmount > 0) {
@@ -1027,7 +1212,7 @@ const FinanceDB = (() => {
   }
 
   function buildCycleSummaries(cycles, transactions, statements, accounts) {
-    const balances = calculateBalances(accounts, transactions);
+    const balancesNow = calculateBalances(accounts, transactions, addDays(getToday(), 1));
     return cycles.map((cycle) => {
       const cycleTransactions = transactions.filter((item) => item.budgetCycleId === cycle.id);
       const income = cycleTransactions
@@ -1045,7 +1230,7 @@ const FinanceDB = (() => {
       const cardPayments = cycleTransactions
         .filter((item) => item.type === 'card_payment')
         .reduce((sum, item) => sum + item.amount, 0);
-      const freeNow = (cycle.liquidAccountIds || []).reduce((sum, accountId) => sum + (balances[accountId] || 0), 0);
+      const freeNow = (cycle.liquidAccountIds || []).reduce((sum, accountId) => sum + (balancesNow[accountId] || 0), 0);
       return {
         ...cycle,
         income: roundAmount(income),
@@ -1060,18 +1245,38 @@ const FinanceDB = (() => {
   }
 
   function buildCardSummaries(cards, statements, cycles) {
+    const today = getToday();
     return cards.map((card) => {
       const cardStatements = statements.filter((item) => item.cardId === card.id);
-      const pending = cardStatements.reduce((sum, statement) => sum + statement.pendingAmount, 0);
+      const currentDebt = roundAmount(cardStatements.reduce((sum, statement) => sum + statement.pendingAmount, 0));
       const nextOpen = cardStatements.find((statement) => statement.pendingAmount > 0) || null;
-      const currentCycle = nextOpen ? cycles.find((cycle) => cycle.id === nextOpen.budgetCycleId) : null;
+      const fallbackStatement = [...cardStatements]
+        .sort((a, b) => compareDate(b.closingDate || '0000-00-00', a.closingDate || '0000-00-00'))[0] || null;
+      const currentStatement = nextOpen || fallbackStatement;
+      const currentCycle = currentStatement?.budgetCycleId
+        ? cycles.find((cycle) => cycle.id === currentStatement.budgetCycleId) || null
+        : null;
+      const availableCredit = card.creditLimit > 0
+        ? roundAmount(card.creditLimit - currentDebt)
+        : 0;
+      const utilizationPct = card.creditLimit > 0
+        ? roundAmount((currentDebt / card.creditLimit) * 100)
+        : 0;
+      const openingDebtPending = roundAmount(
+        cardStatements
+          .filter((statement) => statement.kind === 'opening-debt')
+          .reduce((sum, statement) => sum + statement.pendingAmount, 0)
+      );
       return {
         ...card,
-        pendingAmount: roundAmount(pending),
+        currentDebt,
+        availableCredit,
+        utilizationPct,
+        openingDebtPending,
         openStatements: cardStatements.filter((item) => item.pendingAmount > 0).length,
-        nextClosingDate: getStatementClosingDate(getToday(), card.closingDay),
-        nextDueDate: nextOpen?.dueDate || getNextDueDate(getStatementClosingDate(getToday(), card.closingDay), card.dueDay),
-        currentStatement: nextOpen,
+        nextClosingDate: getUpcomingStatementClosingDate(today, card.closingDay),
+        nextDueDate: nextOpen?.dueDate || getNextDueDate(getUpcomingStatementClosingDate(today, card.closingDay), card.dueDay),
+        currentStatement,
         assignedCycle: currentCycle
       };
     });
@@ -1079,11 +1284,16 @@ const FinanceDB = (() => {
 
   function buildAgendaItems(cycles, cards, recurring, transactions, statements) {
     const today = getToday();
-    const limit = addMonths(today, 2, 28);
+    const activeOrNextCycle = getRelevantCycle(cycles, today);
+    const nextCycle = getNextCycle(cycles, activeOrNextCycle);
+    const limit = nextCycle?.endDate || activeOrNextCycle?.endDate || addMonths(today, 1, 28);
     const items = [];
 
     cycles.forEach((cycle) => {
-      if (compareDate(cycle.startDate, today) >= 0 && compareDate(cycle.startDate, limit) <= 0) {
+      const shouldShowCycle =
+        (activeOrNextCycle && cycle.id === activeOrNextCycle.id) ||
+        (compareDate(cycle.startDate, today) >= 0 && compareDate(cycle.startDate, limit) <= 0);
+      if (shouldShowCycle) {
         items.push({
           id: `agenda-cycle-${cycle.id}`,
           date: cycle.startDate,
@@ -1095,7 +1305,8 @@ const FinanceDB = (() => {
     });
 
     cards.forEach((card) => {
-      const closingDate = getStatementClosingDate(today, card.closingDay);
+      const cardLabel = `${card.bankName} • ${card.last4}`;
+      const closingDate = getUpcomingStatementClosingDate(today, card.closingDay);
       const dueDate = getNextDueDate(closingDate, card.dueDay);
       [closingDate, addMonths(closingDate, 1, card.closingDay)].forEach((date) => {
         if (compareDate(date, today) >= 0 && compareDate(date, limit) <= 0) {
@@ -1103,18 +1314,22 @@ const FinanceDB = (() => {
             id: `agenda-card-close-${card.id}-${date}`,
             date,
             kind: 'card-close',
-            title: `${card.label} corta`,
+            title: `${cardLabel} corta`,
             subtitle: `Cierre de tarjeta ${card.bankName}`
           });
         }
       });
       [dueDate, addMonths(dueDate, 1, card.dueDay)].forEach((date) => {
+        const hasPendingStatementThatDay = statements.some(
+          (statement) => statement.cardId === card.id && statement.pendingAmount > 0 && statement.dueDate === date
+        );
         if (compareDate(date, today) >= 0 && compareDate(date, limit) <= 0) {
+          if (hasPendingStatementThatDay) return;
           items.push({
             id: `agenda-card-due-${card.id}-${date}`,
             date,
             kind: 'card-due',
-            title: `${card.label} vence`,
+            title: `${cardLabel} vence`,
             subtitle: 'Fecha de pago de tarjeta'
           });
         }
@@ -1122,11 +1337,13 @@ const FinanceDB = (() => {
     });
 
     recurring
-      .filter((item) => item.active)
+      .filter((item) => item.active && !(item.isPrimarySalary && item.opensFinancialCycle))
       .forEach((item) => {
         const base = today.slice(0, 7) + '-01';
         [base, addMonths(base, 1, 1)].forEach((monthStart) => {
           const date = addMonths(monthStart, 0, item.dayOfMonth);
+          if (item.startDate && compareDate(date, item.startDate) < 0) return;
+          if (item.endMonth && getYearMonth(date) > item.endMonth) return;
           if (compareDate(date, today) >= 0 && compareDate(date, limit) <= 0) {
             items.push({
               id: `agenda-rec-${item.id}-${date}`,
@@ -1153,25 +1370,49 @@ const FinanceDB = (() => {
         }
       });
 
+    const seenInstallmentGroups = new Set();
     transactions
-      .filter((item) => compareDate(item.date, today) >= 0 && compareDate(item.date, limit) <= 0)
+      .filter((item) => !item.autoGenerated && compareDate(item.date, today) >= 0 && compareDate(item.date, limit) <= 0)
       .forEach((item) => {
+        if (item.type === 'card_charge' && item.installmentGroupId && item.installmentCount > 1) {
+          if (seenInstallmentGroups.has(item.installmentGroupId)) return;
+          seenInstallmentGroups.add(item.installmentGroupId);
+          const card = cards.find((c) => c.id === item.cardId);
+          const cardLabel = card ? `${card.bankName} • ${card.last4}` : 'Tarjeta';
+          items.push({
+            id: `agenda-tx-group-${item.installmentGroupId}`,
+            date: item.date,
+            kind: 'card-charge',
+            title: `${item.description} (${item.installmentCount} cuotas)`,
+            subtitle: `${cardLabel} · ${roundAmount(item.originalPurchaseAmount || item.amount * item.installmentCount).toFixed(2)}`
+          });
+          return;
+        }
+        if (item.type === 'card_charge') return;
+        const typeLabels = { income: 'Ingreso', expense: 'Gasto', transfer: 'Transferencia', card_charge: 'Cargo tarjeta', card_payment: 'Pago tarjeta' };
         items.push({
           id: `agenda-tx-${item.id}`,
           date: item.date,
-          kind: 'transaction',
+          kind: item.type === 'income' ? 'income' : 'expense',
           title: item.description,
-          subtitle: item.type
+          subtitle: typeLabels[item.type] || item.type
         });
       });
 
-    return items.sort((a, b) => compareDate(a.date, b.date)).slice(0, 40);
+    return items
+      .sort((a, b) => compareDate(a.date, b.date))
+      .slice(0, 40)
+      .map((item) => ({
+        ...item,
+        title: String(item.title || '').replace(/Â/g, '').replace(/â€¢/g, '•'),
+        subtitle: String(item.subtitle || '').replace(/Â/g, '').replace(/â€¢/g, '•')
+      }));
   }
 
   function buildAlerts(settings, cycles, cards, debts, statements) {
     const alerts = [];
     const today = getToday();
-    const currentCycle = cycles.find((cycle) => cycle.status === 'open') || cycles[cycles.length - 1] || null;
+    const currentCycle = getRelevantCycle(cycles, today);
 
     if (!settings.financialCycleConfig.primarySalaryRecurringId) {
       alerts.push({
@@ -1190,19 +1431,20 @@ const FinanceDB = (() => {
     }
 
     cards.forEach((card) => {
-      const nextClose = getStatementClosingDate(today, card.closingDay);
+      const cardLabel = `${card.bankName} • ${card.last4}`;
+      const nextClose = getUpcomingStatementClosingDate(today, card.closingDay);
       const nextDue = getNextDueDate(nextClose, card.dueDay);
       if (compareDate(nextClose, addDays(today, 3)) <= 0) {
         alerts.push({
           kind: 'info',
-          title: `${card.label} corta pronto`,
+          title: `${cardLabel} corta pronto`,
           text: `Su siguiente corte es el ${nextClose}.`
         });
       }
       if (compareDate(nextDue, addDays(today, 5)) <= 0) {
         alerts.push({
           kind: 'warning',
-          title: `${card.label} vence pronto`,
+          title: `${cardLabel} vence pronto`,
           text: `Revisa el pago del estado con vencimiento ${nextDue}.`
         });
       }
@@ -1256,7 +1498,7 @@ const FinanceDB = (() => {
     const categories = rawCategories.map((item) => normalizeCategory(item));
     const accounts = rawAccounts.map((item) => normalizeAccount(item, item));
     const goals = rawGoals.map((item) => normalizeGoal(item, item));
-    const recurring = rawRecurring.map((item) => normalizeRecurring(item, item));
+    let recurring = rawRecurring.map((item) => normalizeRecurring(item, item));
     const debts = rawDebts.map((item) => normalizeDebt(item, item));
     const existingCards = rawCards.map((item) => normalizeCard(item, item));
     const manualTransactions = rawTransactions.map((item) => normalizeTransaction(item, item));
@@ -1274,19 +1516,29 @@ const FinanceDB = (() => {
           dueDay: debt.dueDay || 25,
           paymentAccountId: debt.accountId || settings.financialCycleConfig.sweepSourceAccountId,
           needsReview: true,
-          openingBalance: debt.outstandingAmount
+          creditLimit: 0,
+          openingDebtAmount: debt.outstandingAmount
         });
         cards.push(card);
         debt.legacyMigratedToCardId = card.id;
         debt.archived = true;
       });
 
+    recurring = recurring.map((item) => {
+      if (item.accountId) return item;
+      if (item.type !== 'income') return item;
+      return {
+        ...item,
+        accountId: settings.financialCycleConfig.sweepSourceAccountId || 'bank-main'
+      };
+    });
+
     const primarySalaryRecurring = choosePrimarySalaryRecurring(recurring, settings);
     if (primarySalaryRecurring && settings.financialCycleConfig.primarySalaryRecurringId !== primarySalaryRecurring.id) {
       settings.financialCycleConfig.primarySalaryRecurringId = primarySalaryRecurring.id;
     }
 
-    const recurringTransactions = materializeRecurringTransactions(recurring, manualTransactions);
+    const recurringTransactions = materializeRecurringTransactions(recurring, manualTransactions, settings);
     const initialCycles = buildFinancialCycles(primarySalaryRecurring, recurringTransactions, settings);
     const transactionsWithCycles = assignBudgetCycles(recurringTransactions, cards, initialCycles);
     const { cycles, transactions } = buildCyclesWithSweeps(
@@ -1436,6 +1688,9 @@ const FinanceDB = (() => {
     await initDB();
     const existing = payload.id ? await getOne(STORE_NAMES.cards, payload.id) : null;
     const record = normalizeCard(payload, existing);
+    if (!existing && record.creditLimit <= 0) {
+      throw new Error('Define la linea total de la tarjeta para crearla.');
+    }
     await putMany(STORE_NAMES.cards, [record]);
     await syncFinanceEngine();
     return record;
@@ -1466,6 +1721,12 @@ const FinanceDB = (() => {
     if (record.type === 'card_charge' && !record.cardId) {
       throw new Error('La compra con tarjeta necesita una tarjeta.');
     }
+    if (record.type === 'card_charge' && (!record.installmentCount || record.installmentCount < 1)) {
+      throw new Error('La compra con tarjeta necesita al menos una cuota.');
+    }
+    if (record.type === 'card_charge' && record.installmentCount > Math.round(record.amount * 100)) {
+      throw new Error('El monto es demasiado pequeno para repartirlo en tantas cuotas.');
+    }
     if (record.type === 'card_payment' && (!record.cardId || !record.fromAccountId)) {
       throw new Error('El pago de tarjeta necesita tarjeta y cuenta pagadora.');
     }
@@ -1478,8 +1739,20 @@ const FinanceDB = (() => {
       throw new Error('Los movimientos automaticos de barrido no se editan manualmente.');
     }
     const record = normalizeTransaction(payload, existing);
+    if (existing && record.type === 'card_charge' && record.installmentCount > 1) {
+      throw new Error('Las compras en cuotas se corrigen eliminando toda la compra y registrandola de nuevo.');
+    }
     validateTransaction(record);
-    await putMany(STORE_NAMES.transactions, [record]);
+    if (!existing && record.type === 'card_charge' && record.installmentCount > 1) {
+      const cards = await getCards();
+      const card = cards.find((item) => item.id === record.cardId);
+      if (!card) {
+        throw new Error('La tarjeta elegida no existe.');
+      }
+      await putMany(STORE_NAMES.transactions, buildInstallmentTransactions(record, card));
+    } else {
+      await putMany(STORE_NAMES.transactions, [record]);
+    }
     await syncFinanceEngine();
     return record;
   }
@@ -1490,6 +1763,22 @@ const FinanceDB = (() => {
     if (!existing) return;
     if (existing.systemTag === 'cycle_sweep') {
       throw new Error('El barrido automatico se recalcula solo.');
+    }
+    if (existing.installmentGroupId) {
+      const groupedTransactions = (await getTransactions()).filter(
+        (item) => item.installmentGroupId === existing.installmentGroupId
+      );
+      if (groupedTransactions.length <= 1) {
+        await deleteOne(STORE_NAMES.transactions, id);
+        await syncFinanceEngine();
+        return;
+      }
+      const db = await getDB();
+      const transaction = db.transaction(STORE_NAMES.transactions, 'readwrite');
+      groupedTransactions.forEach((item) => transaction.objectStore(STORE_NAMES.transactions).delete(item.id));
+      await transactionToPromise(transaction);
+      await syncFinanceEngine();
+      return;
     }
     await deleteOne(STORE_NAMES.transactions, id);
     await syncFinanceEngine();
@@ -1535,6 +1824,10 @@ const FinanceDB = (() => {
 
   async function deleteCard(id) {
     await initDB();
+    const transactions = await getTransactions();
+    if (transactions.some((item) => item.cardId === id)) {
+      throw new Error('No puedes eliminar una tarjeta con movimientos. Archivala o limpia primero sus compras y pagos.');
+    }
     await deleteOne(STORE_NAMES.cards, id);
     await syncFinanceEngine();
   }
@@ -1609,17 +1902,37 @@ const FinanceDB = (() => {
       getFinancialCycles()
     ]);
 
+    const today = getToday();
     const statements = deriveStatements(cards, transactions, cycles);
     const cycleSummaries = buildCycleSummaries(cycles, transactions, statements, accounts)
       .sort((a, b) => compareDate(b.startDate, a.startDate));
-    const currentCycle =
-      cycleSummaries.find((cycle) => compareDate(cycle.startDate, getToday()) <= 0 && compareDate(getToday(), cycle.endDate) <= 0) ||
-      cycleSummaries[0] ||
-      null;
-    const balances = calculateBalances(accounts, transactions);
+    const currentCycle = getRelevantCycle(cycleSummaries, today);
+    const balances = calculateBalances(accounts, transactions, addDays(getToday(), 1));
     const cardSummaries = buildCardSummaries(cards, statements, cycles);
     const agenda = buildAgendaItems(cycles, cards, recurring, transactions, statements);
     const alerts = buildAlerts(settings, cycleSummaries, cardSummaries, debts, statements);
+    const projectionByCycle = cycleSummaries.reduce((acc, cycle) => {
+      if (compareDate(cycle.endDate, today) < 0) {
+        acc[cycle.id] = {
+          showProjection: false,
+          cutoffDate: cycle.endDate,
+          balances: {},
+          visibleNetWorth: 0
+        };
+        return acc;
+      }
+      const projectedBalances = calculateBalances(accounts, transactions, addDays(cycle.endDate, 1));
+      const visibleNetWorth = accounts
+        .filter((account) => account.includeInNetWorth && !account.archived)
+        .reduce((sum, account) => sum + (projectedBalances[account.id] || 0), 0);
+      acc[cycle.id] = {
+        showProjection: true,
+        cutoffDate: cycle.endDate,
+        balances: projectedBalances,
+        visibleNetWorth: roundAmount(visibleNetWorth)
+      };
+      return acc;
+    }, {});
 
     return {
       settings,
@@ -1634,6 +1947,7 @@ const FinanceDB = (() => {
       cycles: cycleSummaries,
       currentCycleId: currentCycle?.id || '',
       currentCycle,
+      projectionByCycle,
       statements,
       agenda,
       alerts
@@ -1683,6 +1997,7 @@ const FinanceDB = (() => {
     getCategorySuggestions,
     roundAmount,
     normalizeDate,
+    getToday,
     addDays,
     addMonths,
     compareDate,
