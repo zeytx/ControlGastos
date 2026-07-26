@@ -220,6 +220,127 @@ textarea {
   display: none !important;
 }
 
+/* ============ Navegacion por secciones ============ */
+
+.section-title {
+  margin-top: 0.35rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.tab-bar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.94), rgba(0, 0, 0, 0.78));
+  border-bottom: 1px solid rgba(139, 92, 246, 0.1);
+}
+
+[data-theme="light"] .tab-bar {
+  background: linear-gradient(180deg, rgba(245, 243, 247, 0.94), rgba(245, 243, 247, 0.78));
+  border-bottom-color: rgba(124, 58, 237, 0.1);
+}
+
+.tab-button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 46px;
+  padding: 0.4rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-soft, rgba(255, 255, 255, 0.55));
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.tab-button:hover {
+  color: var(--text);
+}
+
+.tab-button.active {
+  color: var(--text);
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.32);
+}
+
+[data-theme="light"] .tab-button.active {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.28);
+}
+
+.tab-button:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.8);
+  outline-offset: 2px;
+}
+
+.tab-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.tab-panel {
+  animation: panel-in 0.28s var(--ease-out-expo, ease-out);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  opacity: 0.62;
+}
+
+.networth-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.networth-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.82rem;
+  opacity: 0.75;
+}
+
+.networth-line strong {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .app-shell {
   position: relative;
   max-width: 1180px;
@@ -228,9 +349,7 @@ textarea {
 }
 
 .app-header {
-  position: sticky;
-  top: 0;
-  z-index: 60;
+  position: static;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -255,6 +374,7 @@ textarea {
 }
 
 .brand-mark {
+  flex-shrink: 0;
   width: 52px;
   height: 52px;
   display: grid;
@@ -318,7 +438,17 @@ textarea {
 .theme-switcher,
 .panel-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+/* Sin esto, un item de grid/flex nunca se encoge por debajo de su contenido
+   y la tarjeta se sale de la pantalla en movil. */
+.cards-grid > *,
+.panel-card > *,
+.card-metrics-grid > *,
+.panel-actions > * {
+  min-width: 0;
 }
 
 .icon-button,
@@ -1858,5 +1988,62 @@ textarea {
 
   .modal-sheet {
     -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* En movil la barra va abajo, al alcance del pulgar. */
+@media (max-width: 768px) {
+  .tab-bar {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.45rem 0.6rem calc(0.45rem + var(--safe-bottom, 0px));
+    border-bottom: none;
+    border-top: 1px solid rgba(139, 92, 246, 0.14);
+  }
+
+  [data-theme="light"] .tab-bar {
+    border-top-color: rgba(124, 58, 237, 0.14);
+  }
+
+  .main-content {
+    padding-bottom: calc(96px + var(--safe-bottom, 0px));
+  }
+
+  .fab {
+    bottom: calc(84px + var(--safe-bottom, 0px));
+  }
+
+  #scroll-top {
+    bottom: calc(84px + var(--safe-bottom, 0px));
+  }
+}
+
+/* El header ya no es sticky: en movil se compacta para no comerse la pantalla. */
+@media (max-width: 768px) {
+  .app-header {
+    padding-bottom: 0.7rem;
+  }
+
+  .app-header h1 {
+    font-size: 1.3rem;
+    line-height: 1.15;
+  }
+
+  #header-subtitle {
+    display: none;
+  }
+
+  .header-actions {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+  }
+
+  .section-title {
+    margin-top: 0.2rem;
+    font-size: 0.95rem;
+    color: var(--text-soft);
   }
 }

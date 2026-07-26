@@ -10,9 +10,15 @@ const FinanceAI = (() => {
 
   const DEFAULT_TYPE = 'expense';
   const ALLOWED_TYPES = ['expense', 'income'];
+  const MAX_IMAGE_EDGE = 1600;
+
+  function localToday() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
 
   function buildSystemPrompt(context = {}) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localToday();
     const categories = (context.categories || [])
       .map((item) => `- ${item.id}: ${item.name}`)
       .join('\n');
@@ -36,7 +42,7 @@ ${categories || '- other-expense: Otros gastos'}
 3. Usa solo estos tipos: ${ALLOWED_TYPES.join(', ')}.
 4. Si parece un pago, compra o salida usa "expense". Si parece deposito, abono, sueldo o reembolso a favor usa "income".
 5. Si el usuario envio dinero, por ejemplo "plinleaste a", "plineaste a", "yapeaste a", "yapear a", "enviaste a", "transferiste a", "mandaste a", entonces es "expense" y en "notes" debe decir "Transferencia enviada". Si el usuario recibio dinero, por ejemplo "te plinearon", "recibiste", "abono recibido", "deposito recibido", entonces es "income" y en "notes" debe decir "Transferencia recibida". Nunca contradigas el verbo principal.
-6. Verifica la fecha con mucho cuidado. Usa solo la fecha real visible en la evidencia. No confundas fecha de operacion con hora, fecha actual, fecha del archivo o fecha de otro movimiento. Si la evidencia esta en espanol y usa barras, interpreta DD/MM/YYYY y nunca MM/DD/YYYY. Si falta el anio, asume ${new Date().getFullYear()}. Si la fecha no es clara, usa ${today} y en "notes" empieza con "Fecha no clara".
+6. Verifica la fecha con mucho cuidado. Usa solo la fecha real visible en la evidencia. No confundas fecha de operacion con hora, fecha actual, fecha del archivo o fecha de otro movimiento. Si la evidencia esta en espanol y usa barras, interpreta DD/MM/YYYY y nunca MM/DD/YYYY. Si falta el anio, asume ${localToday().slice(0, 4)}. Si la fecha no es clara, usa ${today} y en "notes" empieza con "Fecha no clara".
 7. "description" debe ser corta, humana y util, maximo 6 palabras.
 8. "accountHint" debe ser una sugerencia textual breve usando estas cuentas si aplica:
 ${accounts || '- Cuenta principal (bank)'}
@@ -75,7 +81,9 @@ ${debts || '- ninguna'}`;
         type: 'image_url',
         image_url: {
           url: `data:${source.mimeType};base64,${source.base64}`,
-          detail: 'low'
+          // Las boletas y estados de cuenta tienen montos y fechas en letra chica:
+          // con "low" la imagen se reduce demasiado y la IA los lee mal.
+          detail: 'high'
         }
       });
     }
@@ -83,6 +91,7 @@ ${debts || '- ninguna'}`;
     const payload = {
       model: MODEL,
       response_format: { type: 'json_object' },
+      temperature: 0,
       max_tokens: 400,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -93,33 +102,7 @@ ${debts || '- ninguna'}`;
       ]
     };
 
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const errorMsg = errorData?.error?.message || `Error HTTP ${response.status}`;
-
-      if (response.status === 401) {
-        throw new Error('API Key invalida o expirada. Revisala en Ajustes.');
-      }
-      if (response.status === 429) {
-        throw new Error('OpenAI esta limitando la velocidad. Intenta de nuevo en unos segundos.');
-      }
-      if (response.status === 402 || errorMsg.toLowerCase().includes('quota')) {
-        throw new Error('Tu cuenta de OpenAI no tiene creditos disponibles.');
-      }
-
-      throw new Error(`Error de OpenAI: ${errorMsg}`);
-    }
-
-    const data = await response.json();
+    const data = await requestWithRetry(payload, apiKey);
     const content = data?.choices?.[0]?.message?.content;
     if (!content) {
       throw new Error('La IA no devolvio contenido util.');
@@ -128,8 +111,63 @@ ${debts || '- ninguna'}`;
     return parseDraft(content, context, source.sourceType, source);
   }
 
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function requestWithRetry(payload, apiKey, attempt = 0) {
+    const MAX_ATTEMPTS = 3;
+    let response;
+
+    try {
+      response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      if (attempt + 1 < MAX_ATTEMPTS) {
+        await wait(600 * (attempt + 1));
+        return requestWithRetry(payload, apiKey, attempt + 1);
+      }
+      throw new Error('No se pudo conectar con OpenAI. Revisa tu conexion e intenta de nuevo.');
+    }
+
+    if (response.ok) return response.json();
+
+    const errorData = await response.json().catch(() => ({}));
+    const errorMsg = errorData?.error?.message || `Error HTTP ${response.status}`;
+
+    if (response.status === 401) {
+      throw new Error('API Key invalida o expirada. Revisala en Ajustes.');
+    }
+    if (response.status === 402 || errorMsg.toLowerCase().includes('quota')) {
+      throw new Error('Tu cuenta de OpenAI no tiene creditos disponibles.');
+    }
+
+    // 429 y 5xx son transitorios: se reintenta con espera creciente.
+    const isRetryable = response.status === 429 || response.status >= 500;
+    if (isRetryable && attempt + 1 < MAX_ATTEMPTS) {
+      const retryAfter = parseFloat(response.headers.get('retry-after') || '0');
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 800 * Math.pow(2, attempt);
+      await wait(Math.min(delay, 6000));
+      return requestWithRetry(payload, apiKey, attempt + 1);
+    }
+
+    if (response.status === 429) {
+      throw new Error('OpenAI sigue limitando la velocidad. Espera unos segundos y reintenta.');
+    }
+
+    throw new Error(`Error de OpenAI: ${errorMsg}`);
+  }
+
   function buildUserPrompt(source) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localToday();
     if (source.kind === 'image') {
       return `Analiza esta imagen y sugiere un borrador financiero.
 
@@ -277,14 +315,16 @@ ${String(source.text || '').slice(0, 12000)}`;
   function normalizeDate(value) {
     const raw = String(value || '').trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    return new Date().toISOString().slice(0, 10);
+    return localToday();
   }
 
   async function prepareSourceFromFile(file) {
     if (!file) throw new Error('Selecciona un archivo primero');
 
-    if (file.type.startsWith('image/')) {
-      const imageData = await fileToBase64(file);
+    const isHeic = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+
+    if (file.type.startsWith('image/') || isHeic) {
+      const imageData = await prepareImagePayload(file);
       return {
         kind: 'image',
         base64: imageData.base64,
@@ -314,6 +354,54 @@ ${String(source.text || '').slice(0, 12000)}`;
     };
   }
 
+  // OpenAI no acepta HEIC (el formato por defecto del iPhone) y las capturas
+  // de pantalla pesan de mas. Se reencodea a JPEG en canvas antes de subir.
+  async function prepareImagePayload(file) {
+    const needsTranscode = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+
+    if (!needsTranscode && file.size <= 900 * 1024) {
+      return fileToBase64(file);
+    }
+
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+
+      const canvas = typeof OffscreenCanvas === 'function'
+        ? new OffscreenCanvas(width, height)
+        : Object.assign(document.createElement('canvas'), { width, height });
+
+      const context = canvas.getContext('2d');
+      context.drawImage(bitmap, 0, 0, width, height);
+      bitmap.close?.();
+
+      const blob = canvas.convertToBlob
+        ? await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 })
+        : await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+
+      if (!blob) throw new Error('sin blob');
+
+      const base64 = await blobToBase64(blob);
+      return { base64, mimeType: 'image/jpeg' };
+    } catch (error) {
+      if (needsTranscode) {
+        throw new Error('No pude convertir esta imagen HEIC. Compartela como JPG desde Fotos e intenta de nuevo.');
+      }
+      return fileToBase64(file);
+    }
+  }
+
+  async function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(new Error('No se pudo procesar la imagen.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   async function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -329,9 +417,99 @@ ${String(source.text || '').slice(0, 12000)}`;
     });
   }
 
+  // La mayoria de estados de cuenta traen el texto dentro de streams
+  // comprimidos con Flate: sin descomprimirlos, el regex solo ve basura.
+  async function inflateStream(bytes) {
+    if (typeof DecompressionStream !== 'function') return null;
+    for (const format of ['deflate', 'deflate-raw']) {
+      try {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format));
+        const buffer = await new Response(stream).arrayBuffer();
+        if (buffer.byteLength) return new Uint8Array(buffer);
+      } catch (error) {
+        // formato equivocado: se prueba el siguiente
+      }
+    }
+    return null;
+  }
+
+  async function expandPdfStreams(bytes) {
+    const latin1 = new TextDecoder('latin1');
+    const raw = latin1.decode(bytes);
+    const pieces = [];
+    const streamRegex = /stream\r?\n?/g;
+    let match;
+
+    while ((match = streamRegex.exec(raw))) {
+      const start = match.index + match[0].length;
+      const end = raw.indexOf('endstream', start);
+      if (end === -1) continue;
+
+      const header = raw.slice(Math.max(0, match.index - 400), match.index);
+      if (!/FlateDecode/.test(header)) continue;
+
+      const inflated = await inflateStream(bytes.subarray(start, end));
+      if (inflated) pieces.push(latin1.decode(inflated));
+      streamRegex.lastIndex = end;
+    }
+
+    return pieces.join('\n');
+  }
+
+  let pdfjsPromise = null;
+
+  // pdf.js vive en vendor/ y se carga bajo demanda: son ~2.7 MB que no tienen
+  // por que descargarse si nunca analizas un PDF.
+  function loadPdfJs() {
+    if (!pdfjsPromise) {
+      const base = document.baseURI;
+      pdfjsPromise = import(new URL('vendor/pdf.min.mjs', base).href).then((lib) => {
+        lib.GlobalWorkerOptions.workerSrc = new URL('vendor/pdf.worker.min.mjs', base).href;
+        return lib;
+      });
+    }
+    return pdfjsPromise;
+  }
+
+  async function extractPdfTextWithPdfJs(file) {
+    const pdfjs = await loadPdfJs();
+    const data = new Uint8Array(await file.arrayBuffer());
+    const doc = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
+
+    try {
+      const pageCount = Math.min(doc.numPages, 12);
+      const pages = [];
+      for (let index = 1; index <= pageCount; index += 1) {
+        const page = await doc.getPage(index);
+        const content = await page.getTextContent();
+        pages.push(content.items.map((item) => item.str || '').join(' '));
+        page.cleanup();
+      }
+      return pages.join('\n').replace(/\s+/g, ' ').trim().slice(0, 12000);
+    } finally {
+      await doc.destroy();
+    }
+  }
+
   async function extractPdfText(file) {
+    // pdf.js entiende layouts que el extractor casero no; si falla por lo que
+    // sea (sin red la primera vez, PDF raro) se cae al metodo propio.
+    try {
+      const text = await extractPdfTextWithPdfJs(file);
+      if (text && text.length >= 40) return text;
+    } catch (error) {
+      // seguimos con el extractor propio
+    }
+
+    return extractPdfTextFallback(file);
+  }
+
+  async function extractPdfTextFallback(file) {
     const buffer = await file.arrayBuffer();
-    const decoded = new TextDecoder('latin1').decode(buffer);
+    const bytes = new Uint8Array(buffer);
+    const plain = new TextDecoder('latin1').decode(buffer);
+    const inflated = await expandPdfStreams(bytes);
+    const decoded = inflated ? `${plain}\n${inflated}` : plain;
     const chunks = [];
 
     const textLiteralRegex = /\(([^()]*)\)\s*Tj/g;
@@ -382,6 +560,7 @@ ${String(source.text || '').slice(0, 12000)}`;
     analyzeSource,
     prepareSourceFromFile,
     fileToBase64,
+    prepareImagePayload,
     extractPdfText,
     parseDraft
   };

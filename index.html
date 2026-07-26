@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=3.0.0">
 </head>
 <body>
   <div class="app-shell">
@@ -23,6 +23,7 @@
           <p class="eyebrow">Finanzas locales</p>
           <h1>Tu app que no es app</h1>
           <p class="subtitle" id="header-subtitle">Todo queda en este dispositivo, excepto la IA cuando tu la usas.</p>
+          <p class="section-title" id="section-title">Resumen del ciclo</p>
         </div>
       </div>
       <div class="header-actions">
@@ -35,7 +36,30 @@
       </div>
     </header>
 
+    <nav class="tab-bar" id="tab-bar" role="tablist" aria-label="Secciones">
+      <button class="tab-button" data-tab="inicio" role="tab" id="tab-inicio" aria-controls="panel-inicio" aria-selected="false" tabindex="-1">
+        <span class="tab-icon" aria-hidden="true">◉</span>
+        <span class="tab-label">Inicio</span>
+      </button>
+      <button class="tab-button" data-tab="movimientos" role="tab" id="tab-movimientos" aria-controls="panel-movimientos" aria-selected="false" tabindex="-1">
+        <span class="tab-icon" aria-hidden="true">≡</span>
+        <span class="tab-label">Movs</span>
+      </button>
+      <button class="tab-button" data-tab="tarjetas" role="tab" id="tab-tarjetas" aria-controls="panel-tarjetas" aria-selected="false" tabindex="-1">
+        <span class="tab-icon" aria-hidden="true">▤</span>
+        <span class="tab-label">Tarjetas</span>
+      </button>
+      <button class="tab-button" data-tab="cuentas" role="tab" id="tab-cuentas" aria-controls="panel-cuentas" aria-selected="false" tabindex="-1">
+        <span class="tab-icon" aria-hidden="true">$</span>
+        <span class="tab-label">Cuentas</span>
+      </button>
+      <button class="tab-button" data-tab="plan" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" tabindex="-1">
+        <span class="tab-icon" aria-hidden="true">◆</span>
+        <span class="tab-label">Plan</span>
+      </button>
+    </nav>
     <main class="main-content">
+      <div class="tab-panel hidden" id="panel-inicio" data-panel="inicio" role="tabpanel" aria-labelledby="tab-inicio">
       <section class="install-card hidden" id="install-card">
         <div>
           <p class="install-title">Instalala antes de cargar muchos datos</p>
@@ -97,6 +121,29 @@
           </div>
           <div class="chips-row" id="cycle-chips"></div>
           <p class="budget-note" id="cycle-note">Cuando llegue el siguiente sueldo, el sobrante libre de este ciclo se podra mover automaticamente a ahorro.</p>
+        </div>
+
+        <div class="budget-card hidden" id="budget-progress-card">
+          <div class="budget-copy">
+            <span class="budget-title">Tope del ciclo</span>
+            <span class="budget-meta" id="budget-progress-meta"></span>
+          </div>
+          <div class="progress-track compact-track">
+            <div class="progress-fill" id="budget-progress-fill" style="width: 0%"></div>
+          </div>
+          <p class="budget-note" id="budget-progress-note"></p>
+        </div>
+
+        <div class="budget-card hidden" id="sweep-suggestion-card">
+          <div class="budget-copy">
+            <span class="budget-title">Sobrante de este ciclo</span>
+            <span class="budget-meta" id="sweep-suggestion-meta"></span>
+          </div>
+          <p class="budget-note" id="sweep-suggestion-note"></p>
+          <div class="panel-actions">
+            <button class="btn-primary" id="btn-confirm-sweep">Registrar traslado a ahorro</button>
+            <button class="btn-secondary hidden" id="btn-undo-sweep">Deshacer traslado</button>
+          </div>
         </div>
       </section>
 
@@ -174,82 +221,8 @@
         <div class="alerts-list" id="alerts-list"></div>
       </section>
 
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Motor del ciclo</p>
-            <h3>Configuracion activa</h3>
-          </div>
-          <button class="btn-secondary" id="btn-open-cycle-settings">Editar</button>
-        </div>
-        <div class="detail-stack" id="cycle-config-preview"></div>
-      </section>
-
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Patrimonio</p>
-            <h3>Cuentas</h3>
-          </div>
-          <button class="btn-secondary" id="btn-add-account">Nueva cuenta</button>
-        </div>
-        <div class="cards-grid" id="accounts-grid"></div>
-      </section>
-
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Tarjetas</p>
-            <h3>Corte y pago</h3>
-          </div>
-          <button class="btn-secondary" id="btn-add-card">Nueva tarjeta</button>
-        </div>
-        <div class="cards-grid" id="cards-summary-grid"></div>
-      </section>
-
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Ahorro</p>
-            <h3>Metas</h3>
-          </div>
-          <button class="btn-secondary" id="btn-add-goal">Nueva meta</button>
-        </div>
-        <div class="cards-grid" id="goals-grid"></div>
-      </section>
-
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Obligaciones</p>
-            <h3>Deudas no tarjeta</h3>
-          </div>
-          <button class="btn-secondary" id="btn-add-debt">Nueva deuda</button>
-        </div>
-        <div class="cards-grid" id="debts-grid"></div>
-      </section>
-
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Automatico</p>
-            <h3>Recurrentes</h3>
-          </div>
-          <button class="btn-secondary" id="btn-add-recurring">Nuevo recurrente</button>
-        </div>
-        <div class="cards-grid compact-grid" id="recurring-grid"></div>
-      </section>
-
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Agenda</p>
-            <h3>Fechas clave</h3>
-          </div>
-        </div>
-        <div class="list-stack" id="agenda-list"></div>
-      </section>
-
+      </div>
+      <div class="tab-panel hidden" id="panel-movimientos" data-panel="movimientos" role="tabpanel" aria-labelledby="tab-movimientos">
       <section class="section-block">
         <div class="section-header">
           <div>
@@ -314,6 +287,89 @@
           <p>Agrega gastos, ingresos, compras con tarjeta o usa la IA para crear un borrador revisable.</p>
         </div>
       </section>
+      </div>
+      <div class="tab-panel hidden" id="panel-tarjetas" data-panel="tarjetas" role="tabpanel" aria-labelledby="tab-tarjetas">
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Tarjetas</p>
+            <h3>Corte y pago</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-card">Nueva tarjeta</button>
+        </div>
+        <div class="cards-grid" id="cards-summary-grid"></div>
+      </section>
+
+      </div>
+      <div class="tab-panel hidden" id="panel-cuentas" data-panel="cuentas" role="tabpanel" aria-labelledby="tab-cuentas">
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Patrimonio</p>
+            <h3>Cuentas</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-account">Nueva cuenta</button>
+        </div>
+        <div class="cards-grid" id="accounts-grid"></div>
+      </section>
+
+      </div>
+      <div class="tab-panel hidden" id="panel-plan" data-panel="plan" role="tabpanel" aria-labelledby="tab-plan">
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Motor del ciclo</p>
+            <h3>Configuracion activa</h3>
+          </div>
+          <button class="btn-secondary" id="btn-open-cycle-settings">Editar</button>
+        </div>
+        <div class="detail-stack" id="cycle-config-preview"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Ahorro</p>
+            <h3>Metas</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-goal">Nueva meta</button>
+        </div>
+        <div class="cards-grid" id="goals-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Obligaciones</p>
+            <h3>Deudas no tarjeta</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-debt">Nueva deuda</button>
+        </div>
+        <div class="cards-grid" id="debts-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Automatico</p>
+            <h3>Recurrentes</h3>
+          </div>
+          <button class="btn-secondary" id="btn-add-recurring">Nuevo recurrente</button>
+        </div>
+        <div class="cards-grid compact-grid" id="recurring-grid"></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Agenda</p>
+            <h3>Fechas clave</h3>
+          </div>
+        </div>
+        <div class="list-stack" id="agenda-list"></div>
+      </section>
+
+      </div>
     </main>
   </div>
 
@@ -384,7 +440,7 @@
           </label>
           <label class="field">
             <span>Monto</span>
-            <input type="number" step="0.01" min="0" id="tx-amount" placeholder="0.00" required>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="tx-amount" placeholder="0.00" required>
           </label>
         </div>
 
@@ -513,7 +569,7 @@
         <div class="two-columns">
           <label class="field">
             <span>Saldo inicial</span>
-            <input type="number" step="0.01" id="account-opening-balance" placeholder="0.00">
+            <input type="number" step="0.01" inputmode="decimal" id="account-opening-balance" placeholder="0.00">
           </label>
           <label class="field checkbox-field">
             <span>Contar en patrimonio</span>
@@ -525,6 +581,7 @@
           <input type="checkbox" id="account-archived">
         </label>
         <div class="modal-actions-row">
+          <button type="button" class="btn-danger hidden" id="btn-delete-account">Eliminar cuenta</button>
           <button type="button" class="btn-secondary" data-close-modal="modal-account">Cancelar</button>
           <button type="submit" class="btn-primary">Guardar cuenta</button>
         </div>
@@ -569,13 +626,13 @@
           </label>
           <label class="field">
             <span>Linea total</span>
-            <input type="number" step="0.01" min="0" id="card-credit-limit" value="0" required>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="card-credit-limit" value="0" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
             <span>Deuda inicial de la tarjeta</span>
-            <input type="number" step="0.01" min="0" id="card-opening-debt" value="0">
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="card-opening-debt" value="0">
           </label>
           <div class="field">
             <span>Aclaracion</span>
@@ -587,6 +644,7 @@
           <input type="checkbox" id="card-archived">
         </label>
         <div class="modal-actions-row">
+          <button type="button" class="btn-danger hidden" id="btn-delete-card">Eliminar tarjeta</button>
           <button type="button" class="btn-secondary" data-close-modal="modal-card">Cancelar</button>
           <button type="submit" class="btn-primary">Guardar tarjeta</button>
         </div>
@@ -611,11 +669,11 @@
         <div class="two-columns">
           <label class="field">
             <span>Objetivo</span>
-            <input type="number" step="0.01" min="0" id="goal-target-amount" required>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="goal-target-amount" required>
           </label>
           <label class="field">
             <span>Ya ahorrado</span>
-            <input type="number" step="0.01" min="0" id="goal-current-amount" value="0">
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="goal-current-amount" value="0">
           </label>
         </div>
         <div class="two-columns">
@@ -633,6 +691,7 @@
           <input type="checkbox" id="goal-archived">
         </label>
         <div class="modal-actions-row">
+          <button type="button" class="btn-danger hidden" id="btn-delete-goal">Eliminar meta</button>
           <button type="button" class="btn-secondary" data-close-modal="modal-goal">Cancelar</button>
           <button type="submit" class="btn-primary">Guardar meta</button>
         </div>
@@ -671,17 +730,17 @@
         <div class="two-columns">
           <label class="field">
             <span>Total original</span>
-            <input type="number" step="0.01" min="0" id="debt-total-amount" required>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="debt-total-amount" required>
           </label>
           <label class="field">
             <span>Saldo pendiente actual</span>
-            <input type="number" step="0.01" min="0" id="debt-outstanding-amount" required>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="debt-outstanding-amount" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
             <span>Pago minimo</span>
-            <input type="number" step="0.01" min="0" id="debt-minimum-payment" value="0">
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="debt-minimum-payment" value="0">
           </label>
           <label class="field">
             <span>Cuenta relacionada</span>
@@ -703,6 +762,7 @@
           <input type="checkbox" id="debt-archived">
         </label>
         <div class="modal-actions-row">
+          <button type="button" class="btn-danger hidden" id="btn-delete-debt">Eliminar deuda</button>
           <button type="button" class="btn-secondary" data-close-modal="modal-debt">Cancelar</button>
           <button type="submit" class="btn-primary">Guardar deuda</button>
         </div>
@@ -749,7 +809,7 @@
         <div class="two-columns">
           <label class="field">
             <span>Monto</span>
-            <input type="number" step="0.01" min="0" id="recurring-amount" required>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="recurring-amount" required>
           </label>
           <label class="field">
             <span>Cuenta</span>
@@ -807,8 +867,16 @@
             </label>
           </div>
           <label class="field checkbox-field">
-            <span>Barrido automatico a ahorro</span>
+            <span>Calcular sobrante para ahorro</span>
             <input type="checkbox" id="settings-savings-sweep-enabled" checked>
+          </label>
+          <label class="field">
+            <span>Como se mueve el sobrante</span>
+            <select id="settings-sweep-mode">
+              <option value="suggest">Proponer y que yo lo confirme</option>
+              <option value="auto">Registrarlo automaticamente</option>
+            </select>
+            <small class="field-hint">En modo automatico la app crea la transferencia sola, aunque tu banco no la haya hecho.</small>
           </label>
           <div class="field">
             <span>Cuentas liquidas que cuentan para el sobrante</span>
@@ -819,7 +887,7 @@
 
         <label class="field">
           <span>Tope de gasto de referencia</span>
-          <input type="number" step="0.01" min="0" id="settings-budget-input" placeholder="0.00">
+          <input type="number" step="0.01" inputmode="decimal" min="0" id="settings-budget-input" placeholder="0.00">
         </label>
         <button class="btn-primary btn-full" id="btn-save-budget">Guardar tope</button>
 
@@ -907,8 +975,8 @@
 
   <div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
 
-  <script src="db.js"></script>
-  <script src="ai.js"></script>
-  <script src="app.js"></script>
+  <script src="db.js?v=3.0.0"></script>
+  <script src="ai.js?v=3.0.0"></script>
+  <script type="module" src="js/main.js?v=3.0.0"></script>
 </body>
 </html>

@@ -90,12 +90,18 @@ const FinanceDB = (() => {
       sweepSourceAccountId: 'bank-main',
       liquidAccountIds: ['cash-main', 'bank-main'],
       onboardingCompleted: false,
-      savingsSweepEnabled: true
+      savingsSweepEnabled: true,
+      savingsSweepMode: 'suggest'
     }
   };
 
+  const SWEEP_MODES = new Set(['suggest', 'auto']);
+
   let dbPromise = null;
   let initialized = false;
+  const storeSignatures = new Map();
+  let syncQueue = Promise.resolve();
+  let syncPending = false;
 
   function createId(prefix) {
     const random = Math.random().toString(36).slice(2, 10);
@@ -114,11 +120,14 @@ const FinanceDB = (() => {
     return Math.max(1, Math.min(28, parsed));
   }
 
+  function toLocalISODate(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
   function normalizeDate(value) {
     const raw = String(value || '').trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const today = new Date();
-    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return toLocalISODate(new Date());
   }
 
   function compareDate(a, b) {
@@ -132,7 +141,7 @@ const FinanceDB = (() => {
   function addDays(value, days) {
     const date = new Date(`${normalizeDate(value)}T12:00:00`);
     date.setDate(date.getDate() + days);
-    return date.toISOString().slice(0, 10);
+    return toLocalISODate(date);
   }
 
   function addMonths(value, months, preferredDay = null) {
@@ -143,7 +152,7 @@ const FinanceDB = (() => {
     const target = new Date(year, monthIndex, 1, 12, 0, 0);
     const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
     target.setDate(Math.min(day, lastDay));
-    return target.toISOString().slice(0, 10);
+    return toLocalISODate(target);
   }
 
   function getYearMonth(date) {
@@ -151,7 +160,7 @@ const FinanceDB = (() => {
   }
 
   function getToday() {
-    return new Date().toISOString().slice(0, 10);
+    return toLocalISODate(new Date());
   }
 
   function getMostRecentOccurrence(dayOfMonth, referenceDate = getToday()) {
@@ -162,10 +171,10 @@ const FinanceDB = (() => {
     const clampedDay = clampDay(dayOfMonth, 1);
 
     if (day >= clampedDay) {
-      return new Date(year, month - 1, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+      return toLocalISODate(new Date(year, month - 1, clampedDay, 12, 0, 0));
     }
 
-    return new Date(year, month - 2, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+    return toLocalISODate(new Date(year, month - 2, clampedDay, 12, 0, 0));
   }
 
   function getNextOccurrence(dayOfMonth, referenceDate = getToday()) {
@@ -176,10 +185,10 @@ const FinanceDB = (() => {
     const clampedDay = clampDay(dayOfMonth, 1);
 
     if (day <= clampedDay) {
-      return new Date(year, month - 1, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+      return toLocalISODate(new Date(year, month - 1, clampedDay, 12, 0, 0));
     }
 
-    return new Date(year, month, clampedDay, 12, 0, 0).toISOString().slice(0, 10);
+    return toLocalISODate(new Date(year, month, clampedDay, 12, 0, 0));
   }
 
   function resolveDefaultRecurringStartDate(input = {}, existing = null) {
@@ -314,6 +323,7 @@ const FinanceDB = (() => {
     const store = transaction.objectStore(storeName);
     values.forEach((value) => store.put(value));
     await transactionToPromise(transaction);
+    storeSignatures.delete(storeName);
   }
 
   async function deleteOne(storeName, id) {
@@ -321,6 +331,7 @@ const FinanceDB = (() => {
     const transaction = db.transaction(storeName, 'readwrite');
     transaction.objectStore(storeName).delete(id);
     await transactionToPromise(transaction);
+    storeSignatures.delete(storeName);
   }
 
   async function clearStore(storeName) {
@@ -328,6 +339,7 @@ const FinanceDB = (() => {
     const transaction = db.transaction(storeName, 'readwrite');
     transaction.objectStore(storeName).clear();
     await transactionToPromise(transaction);
+    storeSignatures.delete(storeName);
   }
 
   async function replaceStore(storeName, values) {
@@ -337,6 +349,23 @@ const FinanceDB = (() => {
     store.clear();
     values.forEach((value) => store.put(value));
     await transactionToPromise(transaction);
+    storeSignatures.set(storeName, storeSignature(values));
+  }
+
+  function storeSignature(values) {
+    return JSON.stringify(
+      values.map((value) => {
+        const { updatedAt, ...rest } = value || {};
+        return rest;
+      })
+    );
+  }
+
+  async function replaceStoreIfChanged(storeName, values) {
+    const signature = storeSignature(values);
+    if (storeSignatures.get(storeName) === signature) return false;
+    await replaceStore(storeName, values);
+    return true;
   }
 
   function normalizeSettings(input = {}) {
@@ -364,6 +393,9 @@ const FinanceDB = (() => {
       : DEFAULT_SETTINGS.financialCycleConfig.liquidAccountIds.slice();
     merged.financialCycleConfig.onboardingCompleted = !!merged.financialCycleConfig.onboardingCompleted;
     merged.financialCycleConfig.savingsSweepEnabled = merged.financialCycleConfig.savingsSweepEnabled !== false;
+    merged.financialCycleConfig.savingsSweepMode = SWEEP_MODES.has(merged.financialCycleConfig.savingsSweepMode)
+      ? merged.financialCycleConfig.savingsSweepMode
+      : 'suggest';
     return merged;
   }
 
@@ -392,11 +424,19 @@ const FinanceDB = (() => {
 
   function normalizeGoal(input = {}, existing = null) {
     const now = new Date().toISOString();
+    const openingAmount = roundAmount(
+      input.openingAmount ??
+      existing?.openingAmount ??
+      input.currentAmount ??
+      existing?.currentAmount ??
+      0
+    );
     return {
       id: String(input.id || existing?.id || createId('goal')).trim(),
       name: String(input.name || existing?.name || 'Meta').trim().slice(0, 80),
       targetAmount: roundAmount(input.targetAmount ?? existing?.targetAmount ?? 0),
-      currentAmount: roundAmount(input.currentAmount ?? existing?.currentAmount ?? 0),
+      openingAmount,
+      currentAmount: roundAmount(input.currentAmount ?? existing?.currentAmount ?? openingAmount),
       targetDate: input.targetDate ? normalizeDate(input.targetDate) : '',
       accountId: String(input.accountId ?? existing?.accountId ?? '').trim(),
       archived: !!(input.archived ?? existing?.archived),
@@ -408,16 +448,36 @@ const FinanceDB = (() => {
   function normalizeDebt(input = {}, existing = null) {
     const now = new Date().toISOString();
     const kind = DEBT_KINDS.has(input.kind) ? input.kind : existing?.kind || 'loan';
+    const openingOutstandingAmount = roundAmount(
+      input.openingOutstandingAmount ??
+      existing?.openingOutstandingAmount ??
+      input.outstandingAmount ??
+      existing?.outstandingAmount ??
+      0
+    );
+    const openingInstallmentsPaid = Math.max(
+      0,
+      parseInt(
+        input.openingInstallmentsPaid ??
+        existing?.openingInstallmentsPaid ??
+        input.installmentsPaid ??
+        existing?.installmentsPaid ??
+        0,
+        10
+      ) || 0
+    );
     return {
       id: String(input.id || existing?.id || createId('debt')).trim(),
       name: String(input.name || existing?.name || 'Deuda').trim().slice(0, 80),
       kind,
       totalAmount: roundAmount(input.totalAmount ?? existing?.totalAmount ?? 0),
-      outstandingAmount: roundAmount(input.outstandingAmount ?? existing?.outstandingAmount ?? 0),
+      openingOutstandingAmount,
+      outstandingAmount: roundAmount(input.outstandingAmount ?? existing?.outstandingAmount ?? openingOutstandingAmount),
       dueDay: clampDay(input.dueDay ?? existing?.dueDay ?? 1),
       minimumPayment: roundAmount(input.minimumPayment ?? existing?.minimumPayment ?? 0),
       installmentCount: Math.max(0, parseInt(input.installmentCount ?? existing?.installmentCount ?? 0, 10) || 0),
-      installmentsPaid: Math.max(0, parseInt(input.installmentsPaid ?? existing?.installmentsPaid ?? 0, 10) || 0),
+      openingInstallmentsPaid,
+      installmentsPaid: Math.max(0, parseInt(input.installmentsPaid ?? existing?.installmentsPaid ?? openingInstallmentsPaid, 10) || 0),
       accountId: String(input.accountId ?? existing?.accountId ?? '').trim(),
       archived: !!(input.archived ?? existing?.archived),
       legacyMigratedToCardId: String(input.legacyMigratedToCardId ?? existing?.legacyMigratedToCardId ?? '').trim(),
@@ -502,6 +562,11 @@ const FinanceDB = (() => {
       liquidAccountIds: Array.isArray(input.liquidAccountIds ?? existing?.liquidAccountIds)
         ? (input.liquidAccountIds ?? existing?.liquidAccountIds).filter(Boolean)
         : [],
+      pendingCardAmount: roundAmount(input.pendingCardAmount ?? existing?.pendingCardAmount ?? 0),
+      pendingDebtAmount: roundAmount(input.pendingDebtAmount ?? existing?.pendingDebtAmount ?? 0),
+      freeNetAmount: roundAmount(input.freeNetAmount ?? existing?.freeNetAmount ?? 0),
+      sweptAmount: roundAmount(input.sweptAmount ?? existing?.sweptAmount ?? 0),
+      suggestedSweepAmount: roundAmount(input.suggestedSweepAmount ?? existing?.suggestedSweepAmount ?? 0),
       createdAt: existing?.createdAt || input.createdAt || now,
       updatedAt: now
     };
@@ -555,6 +620,7 @@ const FinanceDB = (() => {
         ? roundAmount(input.installmentAmount ?? input.amount ?? existing?.installmentAmount ?? existing?.amount ?? 0)
         : 0,
       recurringOccurrenceKey: String(input.recurringOccurrenceKey ?? existing?.recurringOccurrenceKey ?? '').trim(),
+      manualOverride: !!(input.manualOverride ?? existing?.manualOverride),
       autoGenerated: !!(input.autoGenerated ?? existing?.autoGenerated),
       systemTag: String(input.systemTag ?? existing?.systemTag ?? '').trim(),
       createdAt: existing?.createdAt || input.createdAt || now,
@@ -754,6 +820,12 @@ const FinanceDB = (() => {
           if (item.endMonth && getYearMonth(occurrenceDate) > item.endMonth) return;
           const key = `${item.id}@${occurrenceDate}`;
           const existing = byKey.get(key) || null;
+
+          if (existing?.manualOverride) {
+            results.push(normalizeTransaction(existing, existing));
+            return;
+          }
+
           const payload = normalizeTransaction(
             {
               id: existing?.id,
@@ -779,6 +851,7 @@ const FinanceDB = (() => {
     const preservedTransactions = transactions.filter((item) => {
       if (!item.recurringOccurrenceKey) return true;
       if (activeRecurringIds.has(item.linkedEntityId)) return false;
+      if (item.manualOverride) return true;
       return compareDate(item.date, getToday()) < 0;
     });
     const mergedMap = new Map(preservedTransactions.map((item) => [item.id, item]));
@@ -850,11 +923,11 @@ const FinanceDB = (() => {
     if (day >= closing) {
       const next = new Date(year, month, 1, 12, 0, 0);
       next.setDate(closing);
-      return next.toISOString().slice(0, 10);
+      return toLocalISODate(next);
     }
 
     const current = new Date(year, month - 1, closing, 12, 0, 0);
-    return current.toISOString().slice(0, 10);
+    return toLocalISODate(current);
   }
 
   function getUpcomingStatementClosingDate(referenceDate, closingDay) {
@@ -865,10 +938,10 @@ const FinanceDB = (() => {
     const closing = clampDay(closingDay, 10);
 
     if (day <= closing) {
-      return new Date(year, month - 1, closing, 12, 0, 0).toISOString().slice(0, 10);
+      return toLocalISODate(new Date(year, month - 1, closing, 12, 0, 0));
     }
 
-    return new Date(year, month, closing, 12, 0, 0).toISOString().slice(0, 10);
+    return toLocalISODate(new Date(year, month, closing, 12, 0, 0));
   }
 
   function getNextDueDate(closingDate, dueDay) {
@@ -878,10 +951,10 @@ const FinanceDB = (() => {
     const due = clampDay(dueDay, 25);
 
     const sameMonthCandidate = new Date(closingYear, closingMonth, due, 12, 0, 0);
-    if (sameMonthCandidate > closing) return sameMonthCandidate.toISOString().slice(0, 10);
+    if (sameMonthCandidate > closing) return toLocalISODate(sameMonthCandidate);
 
     const nextMonthCandidate = new Date(closingYear, closingMonth + 1, due, 12, 0, 0);
-    return nextMonthCandidate.toISOString().slice(0, 10);
+    return toLocalISODate(nextMonthCandidate);
   }
 
   function getRelevantCycle(cycles, referenceDate = getToday()) {
@@ -906,8 +979,9 @@ const FinanceDB = (() => {
     const totalCents = Math.round(roundAmount(totalAmount) * 100);
     const baseCents = Math.floor(totalCents / safeCount);
     const remainder = totalCents - baseCents * safeCount;
+    // Los bancos cargan el redondeo en la primera cuota, no en la ultima.
     return Array.from({ length: safeCount }, (_, index) => {
-      const cents = index === safeCount - 1 ? baseCents + remainder : baseCents;
+      const cents = index === 0 ? baseCents + remainder : baseCents;
       return roundAmount(cents / 100);
     });
   }
@@ -943,11 +1017,10 @@ const FinanceDB = (() => {
       if (draft.type === 'card_charge' && draft.cardId) {
         const card = cardMap.get(draft.cardId);
         if (card) {
-          const closingDate = draft.statementCycleKey || getStatementClosingDate(draft.date, card.closingDay);
-          const budgetCycle =
-            sortedCycles.find((cycle) => compareDate(cycle.startDate, closingDate) >= 0) ||
-            sortedCycles[sortedCycles.length - 1] ||
-            null;
+          const closingDate = draft.statementCycleKey || getStatementClosingDate(draft.purchaseDate || draft.date, card.closingDay);
+          // Un cargo lo cubre el primer sueldo que llega despues de que la tarjeta corta.
+          // Si aun no existe ese ciclo, queda sin asignar en vez de ensuciar el ultimo ciclo conocido.
+          const budgetCycle = sortedCycles.find((cycle) => compareDate(cycle.startDate, closingDate) >= 0) || null;
           draft.statementCycleKey = closingDate;
           draft.budgetCycleId = budgetCycle?.id || '';
           return draft;
@@ -986,7 +1059,60 @@ const FinanceDB = (() => {
     return balances;
   }
 
+  function getLinkedTransactions(transactions, type, entityType, entityId) {
+    if (!entityId) return [];
+    return transactions.filter(
+      (item) =>
+        item.type === type &&
+        item.linkedEntityType === entityType &&
+        item.linkedEntityId === entityId
+    );
+  }
+
+  function deriveDebtProgress(debts, transactions) {
+    return debts.map((debt) => {
+      const payments = getLinkedTransactions(transactions, 'debt_payment', 'debt', debt.id);
+      const paidAmount = roundAmount(payments.reduce((sum, item) => sum + item.amount, 0));
+      const outstandingAmount = roundAmount(Math.max(0, debt.openingOutstandingAmount - paidAmount));
+      const rawInstallmentsPaid = debt.openingInstallmentsPaid + payments.length;
+      const installmentsPaid = debt.installmentCount > 0
+        ? Math.min(debt.installmentCount, rawInstallmentsPaid)
+        : rawInstallmentsPaid;
+      return {
+        ...debt,
+        paidAmount,
+        outstandingAmount,
+        installmentsPaid,
+        settled: debt.openingOutstandingAmount > 0 && outstandingAmount <= 0,
+        lastPaymentDate: payments.length
+          ? sortByDateAsc(payments)[payments.length - 1].date
+          : ''
+      };
+    });
+  }
+
+  function deriveGoalProgress(goals, transactions) {
+    return goals.map((goal) => {
+      const contributions = getLinkedTransactions(transactions, 'goal_contribution', 'goal', goal.id);
+      const contributedAmount = roundAmount(contributions.reduce((sum, item) => sum + item.amount, 0));
+      const currentAmount = roundAmount(goal.openingAmount + contributedAmount);
+      return {
+        ...goal,
+        contributedAmount,
+        currentAmount,
+        completed: goal.targetAmount > 0 && currentAmount >= goal.targetAmount,
+        lastContributionDate: contributions.length
+          ? sortByDateAsc(contributions)[contributions.length - 1].date
+          : ''
+      };
+    });
+  }
+
   function deriveStatements(cards, transactions, cycles, cutoffDate = '') {
+    return buildStatementLedger(cards, transactions, cycles, cutoffDate).statements;
+  }
+
+  function buildStatementLedger(cards, transactions, cycles, cutoffDate = '') {
     const charges = sortByDateAsc(
       transactions.filter(
         (item) =>
@@ -1066,6 +1192,8 @@ const FinanceDB = (() => {
       return aKey.localeCompare(bKey);
     });
 
+    const creditByCard = new Map();
+
     payments.forEach((payment) => {
       let remaining = payment.amount;
       const targeted = payment.statementCycleKey
@@ -1083,7 +1211,27 @@ const FinanceDB = (() => {
         statement.pendingAmount = roundAmount(statement.chargedAmount - statement.paidAmount);
         remaining = roundAmount(remaining - applied);
       });
+
+      if (remaining > 0) {
+        creditByCard.set(payment.cardId, roundAmount((creditByCard.get(payment.cardId) || 0) + remaining));
+      }
     });
+
+    // Lo pagado de mas queda como saldo a favor y se aplica a los cargos que cierren despues.
+    creditByCard.forEach((credit, cardId) => {
+      let remaining = credit;
+      statementList
+        .filter((item) => item.cardId === cardId && item.pendingAmount > 0)
+        .forEach((statement) => {
+          if (remaining <= 0) return;
+          const applied = Math.min(remaining, statement.pendingAmount);
+          statement.paidAmount = roundAmount(statement.paidAmount + applied);
+          statement.pendingAmount = roundAmount(statement.chargedAmount - statement.paidAmount);
+          remaining = roundAmount(remaining - applied);
+        });
+      creditByCard.set(cardId, roundAmount(remaining));
+    });
+
 
     statementList.forEach((statement) => {
       statement.pendingAmount = roundAmount(statement.chargedAmount - statement.paidAmount);
@@ -1093,7 +1241,7 @@ const FinanceDB = (() => {
       }
     });
 
-    return statementList;
+    return { statements: statementList, credits: creditByCard };
   }
 
   function getDebtDueDatesWithinCycle(cycle, debt) {
@@ -1173,13 +1321,15 @@ const FinanceDB = (() => {
     const sweepTransactions = [];
     const updatedCycles = cycles.map((cycle) => ({ ...cycle, sweepTransferId: '' }));
 
+    const today = getToday();
+
     for (let index = 0; index < updatedCycles.length; index += 1) {
       const cycle = updatedCycles[index];
-      if (cycle.status !== 'closed') continue;
-      if (!settings.financialCycleConfig.savingsSweepEnabled) continue;
-      if (!settings.financialCycleConfig.savingsAccountId || !settings.financialCycleConfig.sweepSourceAccountId) continue;
-
-      const cutoffDate = addDays(cycle.endDate, 1);
+      const isClosed = cycle.status === 'closed';
+      // Los ciclos abiertos se miden hasta hoy; los cerrados hasta su ultimo dia.
+      const cutoffDate = isClosed
+        ? addDays(cycle.endDate, 1)
+        : addDays(compareDate(today, cycle.endDate) < 0 ? today : cycle.endDate, 1);
       const balancesBeforeSalary = calculateBalances(accounts, effectiveTransactions, cutoffDate);
       const liquidAvailable = (cycle.liquidAccountIds || [])
         .reduce((sum, accountId) => sum + (balancesBeforeSalary[accountId] || 0), 0);
@@ -1194,11 +1344,38 @@ const FinanceDB = (() => {
       cycle.pendingDebtAmount = pendingDebts;
       cycle.freeNetAmount = roundAmount(Math.max(0, freeNet));
       cycle.sweptAmount = 0;
+      cycle.suggestedSweepAmount = 0;
 
-      if (sweepAmount > 0) {
+      const sweepConfigured = !!(
+        settings.financialCycleConfig.savingsSweepEnabled &&
+        settings.financialCycleConfig.savingsAccountId &&
+        settings.financialCycleConfig.sweepSourceAccountId
+      );
+      if (!isClosed || !sweepConfigured) continue;
+
+      cycle.suggestedSweepAmount = sweepAmount;
+
+      const alreadyConfirmed = transactionsWithoutSweeps.some(
+        (item) => item.linkedEntityType === 'financial_cycle' && item.linkedEntityId === cycle.id
+      );
+
+      if (alreadyConfirmed) {
+        const confirmed = transactionsWithoutSweeps.find(
+          (item) => item.linkedEntityType === 'financial_cycle' && item.linkedEntityId === cycle.id
+        );
+        cycle.sweepTransferId = confirmed.id;
+        cycle.sweptAmount = confirmed.amount;
+        cycle.suggestedSweepAmount = 0;
+        continue;
+      }
+
+      // En modo "suggest" no inventamos un movimiento que el banco nunca hizo:
+      // se propone el monto y el usuario lo confirma.
+      if (sweepAmount > 0 && settings.financialCycleConfig.savingsSweepMode === 'auto') {
         const sweepTransaction = createSweepTransaction(cycle, sweepAmount, settings);
         cycle.sweepTransferId = sweepTransaction.id;
         cycle.sweptAmount = sweepAmount;
+        cycle.suggestedSweepAmount = 0;
         sweepTransactions.push(sweepTransaction);
         effectiveTransactions.push(sweepTransaction);
       }
@@ -1244,10 +1421,11 @@ const FinanceDB = (() => {
     });
   }
 
-  function buildCardSummaries(cards, statements, cycles) {
+  function buildCardSummaries(cards, statements, cycles, credits = new Map()) {
     const today = getToday();
     return cards.map((card) => {
       const cardStatements = statements.filter((item) => item.cardId === card.id);
+      const creditBalance = roundAmount(credits.get(card.id) || 0);
       const currentDebt = roundAmount(cardStatements.reduce((sum, statement) => sum + statement.pendingAmount, 0));
       const nextOpen = cardStatements.find((statement) => statement.pendingAmount > 0) || null;
       const fallbackStatement = [...cardStatements]
@@ -1257,7 +1435,7 @@ const FinanceDB = (() => {
         ? cycles.find((cycle) => cycle.id === currentStatement.budgetCycleId) || null
         : null;
       const availableCredit = card.creditLimit > 0
-        ? roundAmount(card.creditLimit - currentDebt)
+        ? roundAmount(card.creditLimit - currentDebt + creditBalance)
         : 0;
       const utilizationPct = card.creditLimit > 0
         ? roundAmount((currentDebt / card.creditLimit) * 100)
@@ -1270,6 +1448,7 @@ const FinanceDB = (() => {
       return {
         ...card,
         currentDebt,
+        creditBalance,
         availableCredit,
         utilizationPct,
         openingDebtPending,
@@ -1389,7 +1568,15 @@ const FinanceDB = (() => {
           return;
         }
         if (item.type === 'card_charge') return;
-        const typeLabels = { income: 'Ingreso', expense: 'Gasto', transfer: 'Transferencia', card_charge: 'Cargo tarjeta', card_payment: 'Pago tarjeta' };
+        const typeLabels = {
+          income: 'Ingreso',
+          expense: 'Gasto',
+          transfer: 'Transferencia',
+          card_charge: 'Cargo tarjeta',
+          card_payment: 'Pago tarjeta',
+          debt_payment: 'Pago de deuda',
+          goal_contribution: 'Aporte a meta'
+        };
         items.push({
           id: `agenda-tx-${item.id}`,
           date: item.date,
@@ -1404,8 +1591,8 @@ const FinanceDB = (() => {
       .slice(0, 40)
       .map((item) => ({
         ...item,
-        title: String(item.title || '').replace(/Â/g, '').replace(/â€¢/g, '•'),
-        subtitle: String(item.subtitle || '').replace(/Â/g, '').replace(/â€¢/g, '•')
+        title: String(item.title || ''),
+        subtitle: String(item.subtitle || '')
       }));
   }
 
@@ -1479,7 +1666,44 @@ const FinanceDB = (() => {
     return alerts.slice(0, 8);
   }
 
-  async function syncFinanceEngine() {
+  function buildBudgetStatus(settings, cycle, transactions, statements) {
+    const limit = roundAmount(settings.monthlyBudget);
+    if (!limit || !cycle) {
+      return { enabled: false, limit, spent: 0, remaining: 0, ratio: 0, overspent: false };
+    }
+
+    const cycleTransactions = transactions.filter((item) => item.budgetCycleId === cycle.id);
+    const cashSpend = cycleTransactions
+      .filter((item) => ['expense', 'debt_payment'].includes(item.type))
+      .reduce((sum, item) => sum + item.amount, 0);
+    const cardSpend = statements
+      .filter((statement) => statement.budgetCycleId === cycle.id)
+      .reduce((sum, statement) => sum + statement.chargedAmount, 0);
+    const spent = roundAmount(cashSpend + cardSpend);
+
+    return {
+      enabled: true,
+      limit,
+      spent,
+      remaining: roundAmount(limit - spent),
+      ratio: limit > 0 ? Math.min(1, spent / limit) : 0,
+      overspent: spent > limit
+    };
+  }
+
+  function syncFinanceEngine() {
+    if (syncPending) return syncQueue;
+    syncPending = true;
+    syncQueue = syncQueue
+      .catch(() => {})
+      .then(() => {
+        syncPending = false;
+        return runFinanceSync();
+      });
+    return syncQueue;
+  }
+
+  async function runFinanceSync() {
     await initDB();
 
     const [rawSettings, rawCategories, rawAccounts, rawDebts, rawGoals, rawRecurring, rawCards, rawTransactions] =
@@ -1541,26 +1765,29 @@ const FinanceDB = (() => {
     const recurringTransactions = materializeRecurringTransactions(recurring, manualTransactions, settings);
     const initialCycles = buildFinancialCycles(primarySalaryRecurring, recurringTransactions, settings);
     const transactionsWithCycles = assignBudgetCycles(recurringTransactions, cards, initialCycles);
+    const derivedDebts = deriveDebtProgress(debtsToPersist, transactionsWithCycles);
     const { cycles, transactions } = buildCyclesWithSweeps(
       initialCycles,
       transactionsWithCycles,
       accounts,
       cards,
-      debtsToPersist,
+      derivedDebts,
       settings
     );
     const finalTransactions = assignBudgetCycles(transactions, cards, cycles).map((item) => normalizeTransaction(item, item));
+    const finalDebts = deriveDebtProgress(debtsToPersist, finalTransactions);
+    const finalGoals = deriveGoalProgress(goals, finalTransactions);
 
     await Promise.all([
-      replaceStore(STORE_NAMES.settings, [settings]),
-      replaceStore(STORE_NAMES.categories, categories),
-      replaceStore(STORE_NAMES.accounts, accounts),
-      replaceStore(STORE_NAMES.goals, goals),
-      replaceStore(STORE_NAMES.recurring, recurring),
-      replaceStore(STORE_NAMES.debts, debtsToPersist),
-      replaceStore(STORE_NAMES.cards, cards),
-      replaceStore(STORE_NAMES.transactions, finalTransactions),
-      replaceStore(STORE_NAMES.financialCycles, cycles)
+      replaceStoreIfChanged(STORE_NAMES.settings, [settings]),
+      replaceStoreIfChanged(STORE_NAMES.categories, categories),
+      replaceStoreIfChanged(STORE_NAMES.accounts, accounts),
+      replaceStoreIfChanged(STORE_NAMES.goals, finalGoals),
+      replaceStoreIfChanged(STORE_NAMES.recurring, recurring),
+      replaceStoreIfChanged(STORE_NAMES.debts, finalDebts),
+      replaceStoreIfChanged(STORE_NAMES.cards, cards),
+      replaceStoreIfChanged(STORE_NAMES.transactions, finalTransactions),
+      replaceStoreIfChanged(STORE_NAMES.financialCycles, cycles)
     ]);
   }
 
@@ -1647,6 +1874,16 @@ const FinanceDB = (() => {
     await initDB();
     const existing = payload.id ? await getOne(STORE_NAMES.goals, payload.id) : null;
     const record = normalizeGoal(payload, existing);
+    // "Ahorrado hoy" es lo que el usuario ve y edita; el saldo inicial se recalcula
+    // para que los aportes ya registrados sigan cuadrando.
+    if (payload.currentAmount !== undefined && payload.currentAmount !== null && payload.currentAmount !== '') {
+      const transactions = await getTransactions();
+      const contributed = roundAmount(
+        getLinkedTransactions(transactions, 'goal_contribution', 'goal', record.id)
+          .reduce((sum, item) => sum + item.amount, 0)
+      );
+      record.openingAmount = roundAmount(roundAmount(payload.currentAmount) - contributed);
+    }
     await putMany(STORE_NAMES.goals, [record]);
     await syncFinanceEngine();
     return record;
@@ -1656,6 +1893,16 @@ const FinanceDB = (() => {
     await initDB();
     const existing = payload.id ? await getOne(STORE_NAMES.debts, payload.id) : null;
     const record = normalizeDebt(payload, existing);
+    if (record.totalAmount > 0 && record.outstandingAmount > record.totalAmount) {
+      throw new Error('El saldo pendiente no puede ser mayor que el monto original.');
+    }
+    if (payload.outstandingAmount !== undefined && payload.outstandingAmount !== null && payload.outstandingAmount !== '') {
+      const transactions = await getTransactions();
+      const payments = getLinkedTransactions(transactions, 'debt_payment', 'debt', record.id);
+      const paid = roundAmount(payments.reduce((sum, item) => sum + item.amount, 0));
+      record.openingOutstandingAmount = roundAmount(roundAmount(payload.outstandingAmount) + paid);
+      record.openingInstallmentsPaid = Math.max(0, record.installmentsPaid - payments.length);
+    }
     await putMany(STORE_NAMES.debts, [record]);
     await syncFinanceEngine();
     return record;
@@ -1691,6 +1938,12 @@ const FinanceDB = (() => {
     if (!existing && record.creditLimit <= 0) {
       throw new Error('Define la linea total de la tarjeta para crearla.');
     }
+    if (!/^\d{4}$/.test(String(payload.last4 ?? record.last4).trim())) {
+      throw new Error('Los ultimos 4 digitos deben ser exactamente 4 numeros.');
+    }
+    if (record.creditLimit > 0 && record.openingDebtAmount > record.creditLimit) {
+      throw new Error('La deuda inicial no puede superar la linea total de la tarjeta.');
+    }
     await putMany(STORE_NAMES.cards, [record]);
     await syncFinanceEngine();
     return record;
@@ -1718,6 +1971,15 @@ const FinanceDB = (() => {
     if (record.type === 'goal_contribution' && !record.fromAccountId) {
       throw new Error('El aporte necesita una cuenta origen.');
     }
+    if (record.type === 'goal_contribution' && !record.linkedEntityId) {
+      throw new Error('El aporte necesita una meta asociada.');
+    }
+    if (record.type === 'transfer' && record.fromAccountId === record.toAccountId) {
+      throw new Error('La transferencia necesita cuentas distintas.');
+    }
+    if (record.type === 'goal_contribution' && record.toAccountId && record.fromAccountId === record.toAccountId) {
+      throw new Error('El aporte necesita una cuenta destino distinta de la de origen.');
+    }
     if (record.type === 'card_charge' && !record.cardId) {
       throw new Error('La compra con tarjeta necesita una tarjeta.');
     }
@@ -1739,6 +2001,13 @@ const FinanceDB = (() => {
       throw new Error('Los movimientos automaticos de barrido no se editan manualmente.');
     }
     const record = normalizeTransaction(payload, existing);
+    // Una ocurrencia de recurrente editada a mano deja de regenerarse desde la plantilla.
+    if (existing?.recurringOccurrenceKey) {
+      record.recurringOccurrenceKey = existing.recurringOccurrenceKey;
+      record.linkedEntityType = existing.linkedEntityType || 'recurring';
+      record.linkedEntityId = existing.linkedEntityId;
+      record.manualOverride = true;
+    }
     if (existing && record.type === 'card_charge' && record.installmentCount > 1) {
       throw new Error('Las compras en cuotas se corrigen eliminando toda la compra y registrandola de nuevo.');
     }
@@ -1806,18 +2075,52 @@ const FinanceDB = (() => {
 
   async function deleteAccount(id) {
     await initDB();
+    const [transactions, recurring, cards, goals, debts, settings] = await Promise.all([
+      getTransactions(),
+      getRecurring(),
+      getCards(),
+      getGoals(),
+      getDebts(),
+      getSettings()
+    ]);
+
+    if (transactions.some((item) => item.fromAccountId === id || item.toAccountId === id)) {
+      throw new Error('No puedes eliminar una cuenta con movimientos. Archivala para dejar de usarla sin perder el historial.');
+    }
+    if (recurring.some((item) => item.accountId === id)) {
+      throw new Error('Hay recurrentes que usan esta cuenta. Cambialos de cuenta antes de eliminarla.');
+    }
+    if (cards.some((item) => item.paymentAccountId === id)) {
+      throw new Error('Hay tarjetas que pagan desde esta cuenta. Cambia su cuenta pagadora primero.');
+    }
+    if (goals.some((item) => item.accountId === id) || debts.some((item) => item.accountId === id)) {
+      throw new Error('Hay metas o deudas asociadas a esta cuenta. Desasocialas antes de eliminarla.');
+    }
+    const config = settings.financialCycleConfig;
+    if (config.savingsAccountId === id || config.sweepSourceAccountId === id || (config.liquidAccountIds || []).includes(id)) {
+      throw new Error('Esta cuenta esta en la configuracion del ciclo. Quitala de Ajustes antes de eliminarla.');
+    }
+
     await deleteOne(STORE_NAMES.accounts, id);
     await syncFinanceEngine();
   }
 
   async function deleteGoal(id) {
     await initDB();
+    const transactions = await getTransactions();
+    if (transactions.some((item) => item.linkedEntityType === 'goal' && item.linkedEntityId === id)) {
+      throw new Error('Esta meta ya tiene aportes registrados. Archivala para conservar el historial.');
+    }
     await deleteOne(STORE_NAMES.goals, id);
     await syncFinanceEngine();
   }
 
   async function deleteDebt(id) {
     await initDB();
+    const transactions = await getTransactions();
+    if (transactions.some((item) => item.linkedEntityType === 'debt' && item.linkedEntityId === id)) {
+      throw new Error('Esta deuda ya tiene pagos registrados. Archivala para conservar el historial.');
+    }
     await deleteOne(STORE_NAMES.debts, id);
     await syncFinanceEngine();
   }
@@ -1861,25 +2164,62 @@ const FinanceDB = (() => {
     };
   }
 
-  async function importBackup(payload) {
-    const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+  function normalizeBackup(parsed) {
     if (!parsed || typeof parsed !== 'object') {
       throw new Error('El backup no tiene un formato valido.');
     }
 
-    await Promise.all(Object.values(STORE_NAMES).map((name) => clearStore(name)));
-    await putMany(STORE_NAMES.settings, [normalizeSettings(parsed.settings || DEFAULT_SETTINGS)]);
-    await putMany(STORE_NAMES.categories, (parsed.categories || DEFAULT_CATEGORIES).map((item) => normalizeCategory(item)));
-    await putMany(STORE_NAMES.accounts, (parsed.accounts || DEFAULT_ACCOUNTS).map((item) => normalizeAccount(item, item)));
-    await putMany(STORE_NAMES.goals, (parsed.goals || []).map((item) => normalizeGoal(item, item)));
-    await putMany(STORE_NAMES.debts, (parsed.debts || []).map((item) => normalizeDebt(item, item)));
-    await putMany(STORE_NAMES.recurring, (parsed.recurring || []).map((item) => normalizeRecurring(item, item)));
-    await putMany(STORE_NAMES.cards, (parsed.cards || []).map((item) => normalizeCard(item, item)));
-    await putMany(STORE_NAMES.transactions, (parsed.transactions || []).map((item) => normalizeTransaction(item, item)));
-    if (Array.isArray(parsed.financial_cycles)) {
-      await putMany(STORE_NAMES.financialCycles, parsed.financial_cycles.map((item) => normalizeCycle(item, item)));
+    const collections = ['categories', 'accounts', 'goals', 'debts', 'recurring', 'cards', 'transactions', 'financial_cycles'];
+    collections.forEach((key) => {
+      if (parsed[key] !== undefined && !Array.isArray(parsed[key])) {
+        throw new Error(`El backup tiene un campo "${key}" corrupto: se esperaba una lista.`);
+      }
+    });
+
+    // Se normaliza todo ANTES de tocar la base: si algo revienta, no se borro nada.
+    return {
+      [STORE_NAMES.settings]: [normalizeSettings(parsed.settings || DEFAULT_SETTINGS)],
+      [STORE_NAMES.categories]: (parsed.categories || DEFAULT_CATEGORIES).map((item) => normalizeCategory(item)),
+      [STORE_NAMES.accounts]: (parsed.accounts || DEFAULT_ACCOUNTS).map((item) => normalizeAccount(item, item)),
+      [STORE_NAMES.goals]: (parsed.goals || []).map((item) => normalizeGoal(item, item)),
+      [STORE_NAMES.debts]: (parsed.debts || []).map((item) => normalizeDebt(item, item)),
+      [STORE_NAMES.recurring]: (parsed.recurring || []).map((item) => normalizeRecurring(item, item)),
+      [STORE_NAMES.cards]: (parsed.cards || []).map((item) => normalizeCard(item, item)),
+      [STORE_NAMES.transactions]: (parsed.transactions || []).map((item) => normalizeTransaction(item, item)),
+      [STORE_NAMES.financialCycles]: (parsed.financial_cycles || []).map((item) => normalizeCycle(item, item))
+    };
+  }
+
+  async function snapshotAllStores() {
+    const names = Object.values(STORE_NAMES);
+    const contents = await Promise.all(names.map((name) => getAll(name)));
+    return names.reduce((acc, name, index) => {
+      acc[name] = contents[index];
+      return acc;
+    }, {});
+  }
+
+  async function restoreAllStores(snapshot) {
+    for (const [name, values] of Object.entries(snapshot)) {
+      await replaceStore(name, values);
     }
-    await syncFinanceEngine();
+  }
+
+  async function importBackup(payload) {
+    await initDB();
+    const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    const normalized = normalizeBackup(parsed);
+    const rollback = await snapshotAllStores();
+
+    try {
+      for (const [name, values] of Object.entries(normalized)) {
+        await replaceStore(name, values);
+      }
+      await syncFinanceEngine();
+    } catch (error) {
+      await restoreAllStores(rollback).catch(() => {});
+      throw new Error(`No se pudo importar el backup, se restauraron tus datos anteriores. Detalle: ${error.message}`);
+    }
   }
 
   async function clearAllData() {
@@ -1903,14 +2243,18 @@ const FinanceDB = (() => {
     ]);
 
     const today = getToday();
-    const statements = deriveStatements(cards, transactions, cycles);
+    // Se re-derivan aqui porque normalizeDebt/normalizeGoal solo persisten el
+    // estado base: los campos calculados no sobreviven a la normalizacion.
+    const derivedDebts = deriveDebtProgress(debts, transactions);
+    const derivedGoals = deriveGoalProgress(goals, transactions);
+    const { statements, credits } = buildStatementLedger(cards, transactions, cycles);
     const cycleSummaries = buildCycleSummaries(cycles, transactions, statements, accounts)
       .sort((a, b) => compareDate(b.startDate, a.startDate));
     const currentCycle = getRelevantCycle(cycleSummaries, today);
     const balances = calculateBalances(accounts, transactions, addDays(getToday(), 1));
-    const cardSummaries = buildCardSummaries(cards, statements, cycles);
+    const cardSummaries = buildCardSummaries(cards, statements, cycles, credits);
     const agenda = buildAgendaItems(cycles, cards, recurring, transactions, statements);
-    const alerts = buildAlerts(settings, cycleSummaries, cardSummaries, debts, statements);
+    const alerts = buildAlerts(settings, cycleSummaries, cardSummaries, derivedDebts, statements);
     const projectionByCycle = cycleSummaries.reduce((acc, cycle) => {
       if (compareDate(cycle.endDate, today) < 0) {
         acc[cycle.id] = {
@@ -1934,13 +2278,43 @@ const FinanceDB = (() => {
       return acc;
     }, {});
 
+    const liquidNetWorth = roundAmount(
+      accounts
+        .filter((account) => account.includeInNetWorth && !account.archived)
+        .reduce((sum, account) => sum + (balances[account.id] || 0), 0)
+    );
+    const cardDebtTotal = roundAmount(
+      cardSummaries
+        .filter((card) => !card.archived)
+        .reduce((sum, card) => sum + card.currentDebt, 0)
+    );
+    const activeDebtTotal = roundAmount(
+      derivedDebts
+        .filter((item) => !item.archived && !item.legacyMigratedToCardId)
+        .reduce((sum, item) => sum + item.outstandingAmount, 0)
+    );
+    const netWorth = {
+      liquid: liquidNetWorth,
+      cardDebt: cardDebtTotal,
+      otherDebt: activeDebtTotal,
+      total: roundAmount(liquidNetWorth - cardDebtTotal - activeDebtTotal)
+    };
+
+    const budget = buildBudgetStatus(settings, currentCycle, transactions, statements);
+    const unassignedCardCharges = transactions.filter(
+      (item) => item.type === 'card_charge' && !item.budgetCycleId
+    ).length;
+
     return {
       settings,
       categories,
       accounts,
       balances,
-      debts: debts.filter((item) => !item.legacyMigratedToCardId),
-      goals,
+      netWorth,
+      budget,
+      unassignedCardCharges,
+      debts: derivedDebts.filter((item) => !item.legacyMigratedToCardId),
+      goals: derivedGoals,
       recurring,
       cards: cardSummaries,
       transactions: sortByDateAsc(transactions).reverse(),
@@ -1956,6 +2330,57 @@ const FinanceDB = (() => {
 
   async function applyRecurringForMonth() {
     await syncFinanceEngine();
+  }
+
+  async function confirmCycleSweep(cycleId, amountOverride = null) {
+    await initDB();
+    const [cycles, settings, transactions] = await Promise.all([
+      getFinancialCycles(),
+      getSettings(),
+      getTransactions()
+    ]);
+
+    const cycle = cycles.find((item) => item.id === cycleId);
+    if (!cycle) throw new Error('Ese ciclo ya no existe.');
+
+    const already = transactions.find(
+      (item) => item.linkedEntityType === 'financial_cycle' && item.linkedEntityId === cycleId
+    );
+    if (already) throw new Error('Este ciclo ya tiene su traslado a ahorro registrado.');
+
+    const config = settings.financialCycleConfig;
+    if (!config.savingsAccountId || !config.sweepSourceAccountId) {
+      throw new Error('Configura la cuenta de ahorro y la cuenta de origen antes de mover el sobrante.');
+    }
+
+    const amount = roundAmount(amountOverride ?? cycle.suggestedSweepAmount);
+    if (!amount || amount <= 0) {
+      throw new Error('No hay sobrante libre para mover en este ciclo.');
+    }
+
+    return saveTransaction({
+      type: 'transfer',
+      amount,
+      date: addDays(cycle.endDate, 1),
+      description: `Ahorro del ciclo ${cycle.startDate}`,
+      fromAccountId: config.sweepSourceAccountId,
+      toAccountId: config.savingsAccountId,
+      linkedEntityType: 'financial_cycle',
+      linkedEntityId: cycle.id,
+      sourceType: 'manual',
+      systemTag: 'cycle_sweep_confirmed',
+      notes: 'Sobrante del ciclo confirmado por ti'
+    });
+  }
+
+  async function undoCycleSweep(cycleId) {
+    await initDB();
+    const transactions = await getTransactions();
+    const sweep = transactions.find(
+      (item) => item.linkedEntityType === 'financial_cycle' && item.linkedEntityId === cycleId
+    );
+    if (!sweep) throw new Error('Este ciclo no tiene traslado a ahorro registrado.');
+    await deleteTransaction(sweep.id);
   }
 
   function getCategorySuggestions(type = 'expense') {
@@ -1995,6 +2420,8 @@ const FinanceDB = (() => {
     importBackup,
     clearAllData,
     getCategorySuggestions,
+    confirmCycleSweep,
+    undoCycleSweep,
     roundAmount,
     normalizeDate,
     getToday,

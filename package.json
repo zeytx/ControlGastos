@@ -1,0 +1,11 @@
+{
+  "name": "finanzas-locales",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Control financiero local por ciclos de sueldo, sin backend y sin dependencias.",
+  "scripts": {
+    "test": "TZ=America/Lima node --test \"tests/*.test.mjs\"",
+    "test:watch": "TZ=America/Lima node --test --watch \"tests/*.test.mjs\""
+  },
+  "license": "MIT"
+}
