@@ -2047,3 +2047,95 @@ textarea {
     color: var(--text-soft);
   }
 }
+
+/* ============ Ajustes, presupuestos y conciliacion ============ */
+
+.settings-block {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.settings-block-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.category-budget-list {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.category-budget-row {
+  display: grid;
+  grid-template-columns: 1fr 130px;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.category-budget-row input {
+  padding: 0.6rem 0.7rem;
+  text-align: right;
+}
+
+.breakdown-fill.over,
+.progress-fill.over {
+  background: linear-gradient(90deg, var(--accent-warm), var(--danger));
+}
+
+.over-budget {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.category-hint {
+  color: var(--accent-strong);
+  opacity: 0.9;
+}
+
+.networth-bar {
+  fill: var(--chart-card);
+}
+
+.networth-bar.negative {
+  fill: var(--chart-expense);
+}
+
+.chart-shell {
+  margin-top: 0.5rem;
+}
+
+.reconcile-ok {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.reconcile-diff {
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.payload-preview {
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}

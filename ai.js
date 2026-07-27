@@ -111,6 +111,143 @@ ${debts || '- ninguna'}`;
     return parseDraft(content, context, source.sourceType, source);
   }
 
+  /* ===== Lectura de estados de cuenta ===== */
+
+  function buildStatementPrompt() {
+    return `Eres un lector de estados de cuenta de tarjetas de credito peruanas. Solo devuelves JSON valido.
+
+Tu tarea es extraer TODOS los consumos del estado de cuenta, uno por uno.
+
+Reglas:
+1. Devuelve solo JSON, sin texto alrededor.
+2. Fechas en formato YYYY-MM-DD. En Peru las fechas con barras son DD/MM/YYYY.
+3. "amount" siempre positivo, en la moneda del consumo.
+4. Los pagos, abonos y notas de credito NO son consumos: van en "payments".
+5. Ignora intereses, portes, membresias y seguros salvo que no puedas distinguirlos; si los incluyes, marcalos en "description".
+6. Si el estado separa soles y dolares, usa "currency" con PEN o USD segun corresponda.
+7. Si un consumo es en cuotas, pon el numero de cuota en "installment" (ej: "3/12").
+8. No inventes movimientos: si no lo lees con claridad, omitelo y reportalo en "unreadable".
+
+Formato exacto:
+{
+  "cardHint": "banco y ultimos 4 si aparecen",
+  "closingDate": "YYYY-MM-DD",
+  "dueDate": "YYYY-MM-DD",
+  "totalCharged": 0,
+  "minimumPayment": 0,
+  "movements": [
+    { "date": "YYYY-MM-DD", "description": "texto corto", "amount": 0, "currency": "PEN", "installment": "" }
+  ],
+  "payments": [
+    { "date": "YYYY-MM-DD", "description": "texto corto", "amount": 0 }
+  ],
+  "unreadable": 0
+}`;
+  }
+
+  async function analyzeStatement(text, apiKey) {
+    if (!apiKey || !apiKey.startsWith('sk-')) {
+      throw new Error('API Key de OpenAI invalida. Debe empezar con "sk-".');
+    }
+    if (!String(text || '').trim()) {
+      throw new Error('No se pudo leer texto del estado de cuenta.');
+    }
+
+    const payload = {
+      model: MODEL,
+      response_format: { type: 'json_object' },
+      temperature: 0,
+      max_tokens: 4000,
+      messages: [
+        { role: 'system', content: buildStatementPrompt() },
+        {
+          role: 'user',
+          content: `Extrae los consumos de este estado de cuenta.\n\n${String(text).slice(0, 40000)}`
+        }
+      ]
+    };
+
+    const data = await requestWithRetry(payload, apiKey);
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('La IA no devolvio contenido util.');
+
+    return parseStatement(content);
+  }
+
+  function parseStatement(rawContent) {
+    let parsed;
+    try {
+      parsed = JSON.parse(String(rawContent).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+    } catch (error) {
+      throw new Error('La IA devolvio un formato invalido al leer el estado de cuenta.');
+    }
+
+    const cleanMovement = (item) => ({
+      date: normalizeDate(item?.date),
+      description: String(item?.description || 'Consumo').trim().slice(0, 80),
+      amount: roundAmount(item?.amount),
+      currency: item?.currency === 'USD' ? 'USD' : 'PEN',
+      installment: String(item?.installment || '').trim().slice(0, 12)
+    });
+
+    const movements = Array.isArray(parsed.movements)
+      ? parsed.movements.map(cleanMovement).filter((item) => item.amount > 0)
+      : [];
+    const payments = Array.isArray(parsed.payments)
+      ? parsed.payments.map(cleanMovement).filter((item) => item.amount > 0)
+      : [];
+
+    return {
+      cardHint: String(parsed.cardHint || '').trim().slice(0, 60),
+      closingDate: parsed.closingDate ? normalizeDate(parsed.closingDate) : '',
+      dueDate: parsed.dueDate ? normalizeDate(parsed.dueDate) : '',
+      totalCharged: roundAmount(parsed.totalCharged),
+      minimumPayment: roundAmount(parsed.minimumPayment),
+      movements,
+      payments,
+      unreadable: Math.max(0, parseInt(parsed.unreadable, 10) || 0)
+    };
+  }
+
+  /* ===== Preguntas sobre tus finanzas (solo agregados) ===== */
+
+  async function askAboutFinances(question, aggregates, apiKey) {
+    if (!apiKey || !apiKey.startsWith('sk-')) {
+      throw new Error('API Key de OpenAI invalida. Debe empezar con "sk-".');
+    }
+    if (!String(question || '').trim()) {
+      throw new Error('Escribe una pregunta.');
+    }
+
+    const payload = {
+      model: MODEL,
+      temperature: 0.2,
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'system',
+          content: `Eres un asistente que responde preguntas sobre las finanzas personales del usuario, en espanol neutro de Peru, tuteando.
+
+Reglas:
+1. Responde SOLO con los datos del resumen que te paso. No inventes cifras.
+2. Si el resumen no alcanza para responder, dilo claramente y sugiere que registre mas movimientos.
+3. Se breve: maximo 4 frases. Usa montos con dos decimales y el prefijo S/.
+4. No des consejos de inversion ni recomiendes productos financieros.
+5. Los montos ya vienen totalizados: no tienes el detalle de cada compra.`
+        },
+        {
+          role: 'user',
+          content: `Resumen de mis finanzas:\n${JSON.stringify(aggregates, null, 1)}\n\nPregunta: ${String(question).slice(0, 500)}`
+        }
+      ]
+    };
+
+    const data = await requestWithRetry(payload, apiKey);
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('La IA no devolvio respuesta.');
+    return String(content).trim();
+  }
+
   function wait(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -471,13 +608,28 @@ ${String(source.text || '').slice(0, 12000)}`;
     return pdfjsPromise;
   }
 
-  async function extractPdfTextWithPdfJs(file) {
+  async function extractPdfTextWithPdfJs(file, { password = '', maxPages = 12 } = {}) {
     const pdfjs = await loadPdfJs();
     const data = new Uint8Array(await file.arrayBuffer());
-    const doc = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
+
+    let doc;
+    try {
+      doc = await pdfjs.getDocument({ data, password, isEvalSupported: false }).promise;
+    } catch (error) {
+      // pdf.js usa estos nombres para "falta clave" y "clave incorrecta".
+      const name = error?.name || '';
+      if (name === 'PasswordException' || /password/i.test(error?.message || '')) {
+        throw new Error(
+          password
+            ? 'La clave no abre este PDF. En los estados de cuenta suele ser tu DNI; revisala en Ajustes.'
+            : 'Este PDF esta protegido con clave. Guarda tu DNI en Ajustes o escribe la clave para abrirlo.'
+        );
+      }
+      throw error;
+    }
 
     try {
-      const pageCount = Math.min(doc.numPages, 12);
+      const pageCount = Math.min(doc.numPages, maxPages);
       const pages = [];
       for (let index = 1; index <= pageCount; index += 1) {
         const page = await doc.getPage(index);
@@ -491,14 +643,16 @@ ${String(source.text || '').slice(0, 12000)}`;
     }
   }
 
-  async function extractPdfText(file) {
+  async function extractPdfText(file, options = {}) {
     // pdf.js entiende layouts que el extractor casero no; si falla por lo que
     // sea (sin red la primera vez, PDF raro) se cae al metodo propio.
     try {
-      const text = await extractPdfTextWithPdfJs(file);
+      const text = await extractPdfTextWithPdfJs(file, options);
       if (text && text.length >= 40) return text;
     } catch (error) {
-      // seguimos con el extractor propio
+      // Si el PDF esta cifrado no hay fallback posible: el extractor casero
+      // tampoco puede leerlo, asi que el error del usuario debe sobrevivir.
+      if (/clave/i.test(error.message)) throw error;
     }
 
     return extractPdfTextFallback(file);
@@ -562,6 +716,10 @@ ${String(source.text || '').slice(0, 12000)}`;
     fileToBase64,
     prepareImagePayload,
     extractPdfText,
+    extractPdfTextWithPdfJs,
+    analyzeStatement,
+    parseStatement,
+    askAboutFinances,
     parseDraft
   };
 })();

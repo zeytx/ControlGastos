@@ -5,7 +5,7 @@
    La IA nunca se cachea.
    ============================================ */
 
-const CACHE_NAME = 'finanzas-locales-v8';
+const CACHE_NAME = 'finanzas-locales-v9';
 
 // Sin ?v= a proposito: el matching ignora el query string, asi que una misma
 // entrada sirve tanto para "js/main.js?v=3.0.0" (pedido por el HTML) como para
@@ -32,6 +32,9 @@ const APP_SHELL = [
   './js/forms.js',
   './js/theme.js',
   './js/navigation.js',
+  './js/notifications.js',
+  './js/reconcile.js',
+  './js/ask.js',
   './js/views/hero.js',
   './js/views/dashboard.js',
   './js/views/accounts.js',

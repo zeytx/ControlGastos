@@ -1,10 +1,13 @@
 /* Arranque de la app y cableado de eventos. */
 import { $, $$, bindSwipeToDismiss, closeModal, openConfirm, openModal, showToast } from './dom.js';
 import { getCardLabel, isInstallmentGroupTransaction } from './format.js';
-import { handleAISubmit, handleAccountSubmit, handleCardSubmit, handleDebtSubmit, handleExportCsv, handleExportJson, handleGoalSubmit, handleImportJson, handleRecurringSubmit, handleSaveCycleConfig, handleTransactionSubmit, saveTheme } from './forms.js';
+import { handleSaveCategoryBudgets, handleSaveExchangeRate, handleSaveNotificationSettings, handleAISubmit, handleAccountSubmit, handleCardSubmit, handleDebtSubmit, handleExportCsv, handleExportJson, handleGoalSubmit, handleImportJson, handleRecurringSubmit, handleSaveCycleConfig, handleTransactionSubmit, saveTheme } from './forms.js';
 import { initNavigation } from './navigation.js';
+import { bindAskEvents, openAskModal } from './ask.js';
+import { bindReconcileEvents, getStoredStatementPassword, openReconcileModal, setStoredStatementPassword } from './reconcile.js';
+import { renderNotificationStatus, requestNotificationPermission, runCardDueCheck, sendTestNotification } from './notifications.js';
 import { openAIModal, openAccountModal, openCardModal, openCardStatementsModal, openDebtModal, openGoalModal, openRecurringModal, openTransactionModal, renderTransactionDetail } from './modals.js';
-import { loadSettingsIntoInputs, populateSettingsOptions, setDefaultFormDates, updateCardStatementOptions, updateInstallmentPreview, updateRecurringFields, updateTransactionFields } from './options.js';
+import { applyCategorySuggestion, updateCurrencyFields, loadSettingsIntoInputs, populateSettingsOptions, setDefaultFormDates, updateCardStatementOptions, updateInstallmentPreview, updateRecurringFields, updateTransactionFields } from './options.js';
 import { refreshData, renderAll } from './render.js';
 import { getSelectedCycle, getSnapshot, getTransactionById, state } from './state.js';
 import { renderQuickFilters, renderTransactions } from './views/transactions.js';
@@ -44,6 +47,7 @@ export async function init() {
   await requestPersistentStorage();
   await refreshData({ preserveSelectedCycle: false });
   registerServiceWorker();
+  runCardDueCheck().catch(() => {});
 }
 
 export function changeCycle(direction) {
@@ -275,6 +279,8 @@ export function bindEvents() {
   $('#btn-open-settings').addEventListener('click', () => {
     loadSettingsIntoInputs();
     populateSettingsOptions();
+    $('#settings-statement-password').value = getStoredStatementPassword();
+    renderNotificationStatus();
     openModal('modal-settings');
   });
   $('#btn-open-cycle-settings').addEventListener('click', () => {
@@ -326,6 +332,50 @@ export function bindEvents() {
   $('#btn-add-goal').addEventListener('click', () => openGoalModal());
   $('#btn-add-debt').addEventListener('click', () => openDebtModal());
   $('#btn-add-recurring').addEventListener('click', () => openRecurringModal());
+
+  bindReconcileEvents();
+  bindAskEvents();
+
+  $('#action-reconcile').addEventListener('click', openReconcileModal);
+  $('#action-ask').addEventListener('click', openAskModal);
+
+  $('#tx-description').addEventListener('blur', () => applyCategorySuggestion());
+  $('#tx-category').addEventListener('change', (event) => {
+    event.target.dataset.touched = '1';
+  });
+  $('#tx-from-account').addEventListener('change', updateCurrencyFields);
+  $('#tx-to-account').addEventListener('change', updateCurrencyFields);
+
+  $('#btn-save-category-budgets').addEventListener('click', handleSaveCategoryBudgets);
+  $('#btn-save-exchange-rate').addEventListener('click', handleSaveExchangeRate);
+  $('#settings-notifications-enabled').addEventListener('change', handleSaveNotificationSettings);
+  $('#settings-notify-days').addEventListener('change', handleSaveNotificationSettings);
+
+  $('#btn-enable-notifications').addEventListener('click', async () => {
+    try {
+      await requestNotificationPermission();
+      await sendTestNotification();
+      renderNotificationStatus();
+      showToast('Avisos activados', 'success');
+      await runCardDueCheck();
+    } catch (error) {
+      showToast(error.message, 'error');
+      renderNotificationStatus();
+    }
+  });
+
+  $('#btn-save-statement-password').addEventListener('click', (event) => {
+    event.preventDefault();
+    const value = $('#settings-statement-password').value.trim();
+    setStoredStatementPassword(value);
+    showToast(value ? 'Clave guardada en este dispositivo' : 'Clave eliminada', 'success');
+  });
+
+  $('#btn-toggle-statement-password').addEventListener('click', (event) => {
+    event.preventDefault();
+    const input = $('#settings-statement-password');
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
 
   $('#action-add-transaction').addEventListener('click', () => openTransactionModal());
   $('#action-add-ai').addEventListener('click', () => openAIModal());

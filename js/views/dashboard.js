@@ -1,5 +1,5 @@
 /* Panel del ciclo. */
-import { renderDonutSvg, renderTrendSvg } from '../charts.js';
+import { renderDonutSvg, renderNetWorthSvg, renderTrendSvg } from '../charts.js';
 import { $, escapeHtml } from '../dom.js';
 import { formatCurrency, formatDate, formatShortDate, getCardLabel } from '../format.js';
 import { getCardCoverageSummary, getCategoryBreakdown, getCycleTrendPoints, getDashboardMetrics, getUpcomingTimelinePreview } from '../metrics.js';
@@ -28,6 +28,8 @@ export function renderDashboard() {
     $('#coverage-note').textContent = 'El dashboard se activa cuando configures tu sueldo principal en Ajustes.';
     $('#category-breakdown').innerHTML = '<div class="chart-empty">Registra gastos para ver el desglose por categorias.</div>';
     $('#cycle-trend-chart').innerHTML = '';
+    $('#networth-chart').innerHTML = emptyMsg;
+    $('#networth-trend-chip').textContent = 'Sin datos';
     $('#trend-summary').innerHTML = '<span class="trend-chip">Sin ciclo</span>';
     return;
   }
@@ -132,6 +134,8 @@ export function renderDashboard() {
         .join('')
     : '<div class="chart-empty">Todavia no hay suficiente movimiento clasificado para mostrar categorias.</div>';
 
+  renderNetWorthChart();
+
   $('#cycle-trend-chart').innerHTML = renderTrendSvg(cycleTrendPoints);
   $('#trend-summary').innerHTML = cycleTrendPoints.length
     ? `
@@ -140,4 +144,22 @@ export function renderDashboard() {
         <span class="trend-chip">${escapeHtml(formatShortDate(cycleTrendPoints[cycleTrendPoints.length - 1].date))}</span>
       `
     : '<span class="trend-chip">Sin ritmo aun</span>';
+}
+
+function renderNetWorthChart() {
+  const history = getSnapshot().netWorthHistory || [];
+  $('#networth-chart').innerHTML = renderNetWorthSvg(history);
+
+  const chip = $('#networth-trend-chip');
+  if (history.length < 2) {
+    chip.textContent = 'Sin datos';
+    chip.className = 'chip';
+    return;
+  }
+
+  const last = history[history.length - 1].net;
+  const previous = history[history.length - 2].net;
+  const delta = FinanceDB.roundAmount(last - previous);
+  chip.textContent = `${delta >= 0 ? '+' : ''}${formatCurrency(delta)} vs ciclo anterior`;
+  chip.className = `chip ${delta >= 0 ? 'positive' : 'danger'}`;
 }

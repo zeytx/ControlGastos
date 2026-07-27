@@ -50,6 +50,43 @@ export function renderDonutSvg(segments, total, centerTop, centerBottom) {
   `;
 }
 
+/** Barras de patrimonio por ciclo: positivas arriba, negativas abajo. */
+export function renderNetWorthSvg(points) {
+  if (points.length < 2) {
+    return '<div class="chart-empty">Necesitas al menos dos ciclos cerrados para ver como evoluciona tu patrimonio.</div>';
+  }
+
+  const width = 520;
+  const height = 200;
+  const padding = 22;
+  const values = points.map((point) => point.net);
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const usable = height - padding * 2;
+  const zeroY = padding + ((max - 0) / range) * usable;
+  const slot = (width - padding * 2) / points.length;
+  const barWidth = Math.max(6, Math.min(38, slot * 0.6));
+
+  const bars = points
+    .map((point, index) => {
+      const center = padding + slot * index + slot / 2;
+      const valueY = padding + ((max - point.net) / range) * usable;
+      const top = Math.min(valueY, zeroY);
+      const barHeight = Math.max(2, Math.abs(valueY - zeroY));
+      const className = point.net < 0 ? 'networth-bar negative' : 'networth-bar';
+      return `<rect x="${(center - barWidth / 2).toFixed(2)}" y="${top.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="4" class="${className}"><title>${escapeHtml(point.date)}</title></rect>`;
+    })
+    .join('');
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="trend-svg" role="img" aria-label="Patrimonio por ciclo">
+      <line x1="${padding}" y1="${zeroY.toFixed(2)}" x2="${width - padding}" y2="${zeroY.toFixed(2)}" class="trend-axis"></line>
+      ${bars}
+    </svg>
+  `;
+}
+
 export function renderTrendSvg(points) {
   if (!points.length) {
     return '<div class="chart-empty">Aun no hay ritmo suficiente para graficar este ciclo.</div>';

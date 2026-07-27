@@ -141,6 +141,7 @@ export async function handleAccountSubmit(event) {
       id: form.dataset.editId || '',
       name: $('#account-name').value.trim(),
       kind: $('#account-kind').value,
+      currency: $('#account-currency').value,
       openingBalance: $('#account-opening-balance').value,
       includeInNetWorth: $('#account-include-networth').checked,
       archived: $('#account-archived').checked
@@ -404,6 +405,51 @@ export function handleExportCsv() {
     link.click();
     URL.revokeObjectURL(url);
     showToast('CSV exportado', 'success');
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+export async function handleSaveCategoryBudgets() {
+  try {
+    const categoryBudgets = {};
+    $$('[data-category-budget]').forEach((input) => {
+      const value = parseFloat(input.value);
+      if (Number.isFinite(value) && value > 0) {
+        categoryBudgets[input.dataset.categoryBudget] = value;
+      }
+    });
+    await FinanceDB.saveSettings({ categoryBudgets });
+    await refreshData();
+    showToast('Topes por categoria guardados', 'success');
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+export async function handleSaveExchangeRate() {
+  try {
+    const rate = parseFloat($('#settings-usd-rate').value);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new Error('El tipo de cambio debe ser un numero mayor que cero.');
+    }
+    await FinanceDB.saveSettings({ exchangeRates: { USD: rate } });
+    await refreshData();
+    showToast('Tipo de cambio guardado', 'success');
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+export async function handleSaveNotificationSettings() {
+  try {
+    await FinanceDB.saveSettings({
+      notifications: {
+        cardDueEnabled: $('#settings-notifications-enabled').checked,
+        daysBefore: parseInt($('#settings-notify-days').value, 10) || 3
+      }
+    });
+    await refreshData();
   } catch (error) {
     showToast(error.message, 'error');
   }

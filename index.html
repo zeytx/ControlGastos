@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=3.0.0">
+  <link rel="stylesheet" href="styles.css?v=4.0.0">
 </head>
 <body>
   <div class="app-shell">
@@ -128,10 +128,13 @@
             <span class="budget-title">Tope del ciclo</span>
             <span class="budget-meta" id="budget-progress-meta"></span>
           </div>
-          <div class="progress-track compact-track">
-            <div class="progress-fill" id="budget-progress-fill" style="width: 0%"></div>
+          <div id="budget-global-row">
+            <div class="progress-track compact-track">
+              <div class="progress-fill" id="budget-progress-fill" style="width: 0%"></div>
+            </div>
+            <p class="budget-note" id="budget-progress-note"></p>
           </div>
-          <p class="budget-note" id="budget-progress-note"></p>
+          <div class="breakdown-list" id="budget-category-list"></div>
         </div>
 
         <div class="budget-card hidden" id="sweep-suggestion-card">
@@ -186,6 +189,17 @@
               </div>
               <p class="budget-note" id="coverage-note">Cuando haya estados de cuenta asignados a este sueldo apareceran aqui.</p>
             </div>
+          </article>
+
+          <article class="dashboard-card networth-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Evolucion</p>
+                <h4>Patrimonio por ciclo</h4>
+              </div>
+              <span class="chip" id="networth-trend-chip">Sin datos</span>
+            </div>
+            <div class="chart-shell" id="networth-chart"></div>
           </article>
 
           <article class="dashboard-card breakdown-card">
@@ -389,6 +403,14 @@
           <strong>Borrador con IA</strong>
           <span>Imagen, correo pegado o PDF con texto local</span>
         </button>
+        <button class="action-row" id="action-reconcile">
+          <strong>Cuadrar estado de cuenta</strong>
+          <span>Sube el PDF del banco y compara con lo registrado</span>
+        </button>
+        <button class="action-row" id="action-ask">
+          <strong>Preguntar sobre mis finanzas</strong>
+          <span>Responde con totales del ciclo, sin enviar tus movimientos</span>
+        </button>
         <button class="action-row" id="action-add-card">
           <strong>Nueva tarjeta</strong>
           <span>Banco, ultimos 4, corte y pago</span>
@@ -452,6 +474,7 @@
           <label class="field" id="field-tx-category">
             <span>Categoria</span>
             <select id="tx-category"></select>
+            <small class="field-hint category-hint hidden" id="tx-category-hint"></small>
           </label>
         </div>
 
@@ -464,6 +487,11 @@
           <label class="field" id="field-tx-from-account">
             <span>Cuenta origen</span>
             <select id="tx-from-account"></select>
+          </label>
+          <label class="field hidden" id="field-tx-to-amount">
+            <span>Cuanto llega a la cuenta destino</span>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="tx-to-amount" placeholder="0.00">
+            <small class="field-hint" id="tx-to-amount-hint"></small>
           </label>
           <label class="field" id="field-tx-to-account">
             <span>Cuenta destino</span>
@@ -542,6 +570,71 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="modal-reconcile" role="dialog" aria-modal="true">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Conciliacion</p>
+          <h2>Cuadrar estado de cuenta</h2>
+        </div>
+      </div>
+      <form id="reconcile-form" class="form-stack">
+        <p class="helper-box">El PDF se abre y se lee en tu dispositivo. Solo el texto de los consumos sale a la IA para ordenarlo; tus saldos y cuentas no se envian.</p>
+        <label class="field">
+          <span>Tarjeta</span>
+          <select id="reconcile-card"></select>
+        </label>
+        <label class="field">
+          <span>Estado de cuenta</span>
+          <select id="reconcile-statement"></select>
+        </label>
+        <label class="field">
+          <span>PDF del banco</span>
+          <input type="file" id="reconcile-file" accept=".pdf,application/pdf">
+          <small class="field-hint">Si esta protegido se abre con la clave guardada en Ajustes.</small>
+        </label>
+        <label class="field hidden" id="field-reconcile-password">
+          <span>Clave del PDF</span>
+          <input type="password" id="reconcile-password" placeholder="DNI u otra clave">
+        </label>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-reconcile">Cancelar</button>
+          <button type="submit" class="btn-primary" id="btn-reconcile-analyze">Leer y cuadrar</button>
+        </div>
+      </form>
+      <div class="detail-stack" id="reconcile-result"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-ask" role="dialog" aria-modal="true">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">IA opcional</p>
+          <h2>Preguntar sobre mis finanzas</h2>
+        </div>
+      </div>
+      <form id="ask-form" class="form-stack">
+        <p class="helper-box">Se envian solo totales del ciclo (ingresos, gastos por categoria, deuda de tarjetas). Nunca la lista de tus movimientos.</p>
+        <label class="field">
+          <span>Tu pregunta</span>
+          <textarea id="ask-question" rows="3" placeholder="Ej: en que se me fue la plata este ciclo?"></textarea>
+        </label>
+        <details class="field">
+          <summary>Ver exactamente que se envia</summary>
+          <pre class="payload-preview" id="ask-payload"></pre>
+        </details>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-secondary" data-close-modal="modal-ask">Cancelar</button>
+          <button type="submit" class="btn-primary" id="btn-ask-send">Preguntar</button>
+        </div>
+      </form>
+      <div class="detail-stack" id="ask-answer"></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-account" role="dialog" aria-modal="true">
     <div class="modal-sheet">
       <div class="modal-handle"></div>
@@ -564,6 +657,12 @@
               <option value="bank">Banco</option>
               <option value="savings">Ahorros</option>
             </select>
+          </label>
+        </div>
+        <div class="two-columns">
+          <label class="field">
+            <span>Moneda</span>
+            <select id="account-currency"></select>
           </label>
         </div>
         <div class="two-columns">
@@ -891,6 +990,49 @@
         </label>
         <button class="btn-primary btn-full" id="btn-save-budget">Guardar tope</button>
 
+        <div class="settings-block">
+          <p class="settings-block-title">Topes por categoria</p>
+          <div class="category-budget-list" id="settings-category-budgets"></div>
+          <button class="btn-secondary btn-full" id="btn-save-category-budgets">Guardar topes por categoria</button>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-block-title">Tipo de cambio</p>
+          <label class="field">
+            <span>Cuantos soles vale 1 dolar</span>
+            <input type="number" step="0.0001" inputmode="decimal" min="0" id="settings-usd-rate" placeholder="3.75">
+            <small class="field-hint">Se usa para consolidar tus cuentas en dolares dentro del patrimonio y los topes.</small>
+          </label>
+          <button class="btn-secondary btn-full" id="btn-save-exchange-rate">Guardar tipo de cambio</button>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-block-title">Avisos de tarjeta</p>
+          <label class="field checkbox-field">
+            <span>Avisarme de cortes y vencimientos</span>
+            <input type="checkbox" id="settings-notifications-enabled" checked>
+          </label>
+          <label class="field">
+            <span>Cuantos dias antes</span>
+            <input type="number" min="1" max="10" inputmode="numeric" id="settings-notify-days" value="3">
+          </label>
+          <p class="soft-note" id="notifications-status"></p>
+          <button class="btn-secondary btn-full" id="btn-enable-notifications">Activar avisos en este dispositivo</button>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-block-title">Clave de los estados de cuenta</p>
+          <label class="field">
+            <span>DNI o clave del PDF</span>
+            <input type="password" id="settings-statement-password" placeholder="Tu DNI">
+            <small class="field-hint">Se guarda solo en este navegador, igual que la API key, y nunca sale de tu dispositivo ni entra al backup.</small>
+          </label>
+          <div class="two-columns">
+            <button class="btn-secondary" id="btn-toggle-statement-password">Ver clave</button>
+            <button class="btn-secondary" id="btn-save-statement-password">Guardar clave</button>
+          </div>
+        </div>
+
         <label class="field">
           <span>API Key de OpenAI</span>
           <input type="password" id="settings-api-key" placeholder="sk-...">
@@ -975,8 +1117,8 @@
 
   <div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
 
-  <script src="db.js?v=3.0.0"></script>
-  <script src="ai.js?v=3.0.0"></script>
-  <script type="module" src="js/main.js?v=3.0.0"></script>
+  <script src="db.js?v=4.0.0"></script>
+  <script src="ai.js?v=4.0.0"></script>
+  <script type="module" src="js/main.js?v=4.0.0"></script>
 </body>
 </html>

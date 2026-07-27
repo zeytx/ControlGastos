@@ -136,7 +136,8 @@ export function formatSourceLabel(sourceType) {
     'image-upload': 'IA imagen',
     'text-email': 'IA correo',
     'pdf-text': 'IA PDF',
-    'text-file': 'IA texto'
+    'text-file': 'IA texto',
+    'statement-import': 'Estado de cuenta'
   };
   return map[sourceType] || sourceType || 'Manual';
 }

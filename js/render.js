@@ -1,5 +1,6 @@
 /* Orquestador de render y recarga de datos. */
 import { $$ } from './dom.js';
+import { renderNotificationStatus, runCardDueCheck } from './notifications.js';
 import { loadSettingsIntoInputs, populateSelects, updateRecurringFields, updateTransactionFields } from './options.js';
 import { state } from './state.js';
 import { applyTheme } from './theme.js';
@@ -32,6 +33,7 @@ export function renderAll() {
   renderBackupStatus();
   updateTransactionFields();
   updateRecurringFields();
+  renderNotificationStatus();
   animateSections();
 }
 

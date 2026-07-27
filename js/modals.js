@@ -2,7 +2,7 @@
 import { TYPE_LABELS } from './constants.js';
 import { $, closeModal, escapeHtml, openModal, renderEmptyPanel, toggleDeleteButton } from './dom.js';
 import { describeTransactionAccounts, formatCurrency, formatDate, formatInstallmentLabel, formatLongDate, formatSourceLabel, formatStatementLabel, getCardLabel, getCategoryLabel, getCycleLabelById, isInstallmentGroupTransaction } from './format.js';
-import { populateCardPaymentOptions, populateDebtAccountOptions, populateGoalAccountOptions, populateInstallmentCountOptions, populateRecurringAccountOptions, populateRecurringDayOptions, populateTransactionFormOptions, setDefaultFormDates, updateCardStatementOptions, updateRecurringFields, updateTransactionFields } from './options.js';
+import { populateCardPaymentOptions, populateDebtAccountOptions, populateGoalAccountOptions, populateInstallmentCountOptions, populateRecurringAccountOptions, populateRecurringDayOptions, populateTransactionFormOptions, setDefaultFormDates, updateCardStatementOptions, updateRecurringFields, updateTransactionFields, populateAccountCurrencyOptions } from './options.js';
 import { getCardMap, getCardStatements, getSnapshot } from './state.js';
 
 export function openTransactionModal({ transaction = null, preset = null } = {}) {
@@ -29,6 +29,8 @@ export function openTransactionModal({ transaction = null, preset = null } = {})
   $('#tx-date').value = base.date || FinanceDB.getToday();
   $('#tx-description').value = base.description || '';
   $('#tx-notes').value = base.notes || '';
+  $('#tx-category').dataset.touched = '';
+  $('#tx-category-hint')?.classList.add('hidden');
   populateTransactionFormOptions();
   populateInstallmentCountOptions(base.installmentCount || 1);
   $('#tx-category').value = base.categoryId || $('#tx-category').value;
@@ -59,6 +61,7 @@ export function openAccountModal(account = null) {
   $('#account-modal-title').textContent = account ? 'Editar cuenta' : 'Nueva cuenta';
   $('#account-name').value = account?.name || '';
   $('#account-kind').value = account?.kind || 'bank';
+  populateAccountCurrencyOptions(account?.currency || 'PEN');
   $('#account-opening-balance').value = account ? FinanceDB.roundAmount(account.openingBalance) : '';
   $('#account-include-networth').checked = account ? account.includeInNetWorth !== false : true;
   $('#account-archived').checked = account?.archived || false;

@@ -32,7 +32,17 @@ const INTERNALS = [
   'normalizeDebt',
   'normalizeGoal',
   'normalizeCycle',
-  'toLocalISODate'
+  'toLocalISODate',
+  'buildCategoryClassifier',
+  'suggestCategory',
+  'normalizeDescription',
+  'descriptionTokens',
+  'convertToBase',
+  'calculateNetWorth',
+  'buildNetWorthHistory',
+  'compareStatementMovements',
+  'normalizeAccount',
+  'normalizeReconciliation'
 ];
 
 function loadEngine() {
@@ -72,9 +82,9 @@ export function makeSettings(overrides = {}) {
 
 export function makeAccounts() {
   return [
-    { id: 'cash-main', name: 'Efectivo', kind: 'cash', openingBalance: 0, includeInNetWorth: true, archived: false },
-    { id: 'bank-main', name: 'Banco', kind: 'bank', openingBalance: 0, includeInNetWorth: true, archived: false },
-    { id: 'savings-main', name: 'Ahorros', kind: 'savings', openingBalance: 0, includeInNetWorth: true, archived: false }
+    internals.normalizeAccount({ id: 'cash-main', name: 'Efectivo', kind: 'cash', openingBalance: 0, includeInNetWorth: true, archived: false }),
+    internals.normalizeAccount({ id: 'bank-main', name: 'Banco', kind: 'bank', openingBalance: 0, includeInNetWorth: true, archived: false }),
+    internals.normalizeAccount({ id: 'savings-main', name: 'Ahorros', kind: 'savings', openingBalance: 0, includeInNetWorth: true, archived: false })
   ];
 }
 

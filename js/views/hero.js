@@ -108,11 +108,38 @@ export function renderBudgetProgress() {
   }
 
   card.classList.remove('hidden');
-  $('#budget-progress-meta').textContent = `${formatCurrency(budget.spent)} de ${formatCurrency(budget.limit)}`;
-  $('#budget-progress-fill').style.width = `${Math.round(budget.ratio * 100)}%`;
-  $('#budget-progress-note').textContent = budget.overspent
-    ? `Te pasaste ${formatCurrency(Math.abs(budget.remaining))} del tope que te pusiste para este ciclo.`
-    : `Te quedan ${formatCurrency(budget.remaining)} antes de tocar el tope de este ciclo.`;
+
+  const globalRow = $('#budget-global-row');
+  if (budget.limit > 0) {
+    globalRow.classList.remove('hidden');
+    $('#budget-progress-meta').textContent = `${formatCurrency(budget.spent)} de ${formatCurrency(budget.limit)}`;
+    $('#budget-progress-fill').style.width = `${Math.round(budget.ratio * 100)}%`;
+    $('#budget-progress-fill').classList.toggle('over', budget.overspent);
+    $('#budget-progress-note').textContent = budget.overspent
+      ? `Te pasaste ${formatCurrency(Math.abs(budget.remaining))} del tope que te pusiste para este ciclo.`
+      : `Te quedan ${formatCurrency(budget.remaining)} antes de tocar el tope de este ciclo.`;
+  } else {
+    globalRow.classList.add('hidden');
+    $('#budget-progress-meta').textContent = 'Topes por categoria';
+    $('#budget-progress-note').textContent = '';
+  }
+
+  const categories = budget.byCategory || [];
+  $('#budget-category-list').innerHTML = categories
+    .map(
+      (item) => `
+        <div class="breakdown-row">
+          <div class="breakdown-meta">
+            <strong>${escapeHtml(item.name)}</strong>
+            <span class="${item.overspent ? 'over-budget' : ''}">${escapeHtml(formatCurrency(item.spent))} / ${escapeHtml(formatCurrency(item.limit))}</span>
+          </div>
+          <div class="breakdown-bar">
+            <div class="breakdown-fill ${item.overspent ? 'over' : ''}" style="width: ${(item.ratio * 100).toFixed(1)}%"></div>
+          </div>
+        </div>
+      `
+    )
+    .join('');
 }
 
 export function renderSweepSuggestion() {

@@ -1,6 +1,6 @@
 /* Poblado y sincronizacion de los selects de los formularios. */
 import { $, escapeHtml, fillSelect } from './dom.js';
-import { formatCurrency, formatDate, formatStatementLabel, getCardDisplayLabel, getCycleLabelById } from './format.js';
+import { formatCurrency, formatDate, formatStatementLabel, getCardDisplayLabel, getCategoryLabel, getCycleLabelById } from './format.js';
 import { getCardMap, getOpenStatementsForCard, getSnapshot, getTodayDate, state } from './state.js';
 
 export function buildAccountOptions({ includeArchived = false, kinds = null, emptyLabel = '' } = {}) {
@@ -121,6 +121,16 @@ export function populateTransactionFormOptions(selectedCardId = '') {
   updateCardStatementOptions();
 }
 
+export function populateAccountCurrencyOptions(selected = 'PEN') {
+  const snapshot = getSnapshot();
+  const labels = { PEN: 'Soles (S/)', USD: 'Dolares (US$)' };
+  fillSelect(
+    $('#account-currency'),
+    (snapshot.currencies || ['PEN']).map((code) => ({ value: code, label: labels[code] || code })),
+    selected
+  );
+}
+
 export function populateGoalAccountOptions() {
   fillSelect(
     $('#goal-account-id'),
@@ -162,6 +172,12 @@ export function populateCardPaymentOptions() {
 }
 
 export function populateSettingsOptions() {
+  const settings = getSnapshot().settings;
+  $('#settings-usd-rate').value = settings.exchangeRates?.USD ?? '';
+  $('#settings-notifications-enabled').checked = settings.notifications?.cardDueEnabled !== false;
+  $('#settings-notify-days').value = settings.notifications?.daysBefore ?? 3;
+  renderCategoryBudgetInputs();
+
   fillSelect(
     $('#settings-primary-salary'),
     [{ value: '', label: 'Selecciona un recurrente' }].concat(
@@ -189,6 +205,28 @@ export function populateSettingsOptions() {
   renderLiquidAccountsCheckboxes();
 }
 
+export function renderCategoryBudgetInputs() {
+  const container = $('#settings-category-budgets');
+  if (!container) return;
+
+  const budgets = getSnapshot().settings.categoryBudgets || {};
+  const categories = getSnapshot().categories.filter((item) => item.type === 'expense');
+
+  container.innerHTML = categories
+    .map(
+      (category) => `
+        <label class="category-budget-row">
+          <span>${escapeHtml(category.name)}</span>
+          <input type="number" step="0.01" inputmode="decimal" min="0"
+                 data-category-budget="${escapeHtml(category.id)}"
+                 value="${budgets[category.id] ? escapeHtml(budgets[category.id]) : ''}"
+                 placeholder="Sin tope">
+        </label>
+      `
+    )
+    .join('');
+}
+
 export function renderLiquidAccountsCheckboxes() {
   const container = $('#settings-liquid-accounts');
   const config = getSnapshot().settings.financialCycleConfig;
@@ -210,6 +248,42 @@ export function renderLiquidAccountsCheckboxes() {
       `
     )
     .join('');
+}
+
+/** Precarga la categoria segun lo que el usuario ya categorizo antes. */
+export function applyCategorySuggestion({ force = false } = {}) {
+  const type = $('#tx-type').value || 'expense';
+  if (!['expense', 'income', 'card_charge'].includes(type)) return;
+
+  const description = $('#tx-description').value.trim();
+  const hint = $('#tx-category-hint');
+  if (!description) {
+    if (hint) hint.classList.add('hidden');
+    return;
+  }
+
+  const suggestion = FinanceDB.suggestCategory(description, getSnapshot().categoryClassifier, { type });
+  if (!suggestion) {
+    if (hint) hint.classList.add('hidden');
+    return;
+  }
+
+  const select = $('#tx-category');
+  const exists = Array.from(select.options).some((option) => option.value === suggestion.categoryId);
+  if (!exists) {
+    if (hint) hint.classList.add('hidden');
+    return;
+  }
+
+  // Solo pisa lo que el usuario eligio si el la esta pidiendo explicitamente.
+  if (force || !select.dataset.touched) {
+    select.value = suggestion.categoryId;
+  }
+
+  if (hint) {
+    hint.textContent = `Categoria sugerida por tus movimientos anteriores: ${getCategoryLabel(suggestion.categoryId)}`;
+    hint.classList.remove('hidden');
+  }
 }
 
 export function updateTransactionCategoryOptions() {
@@ -336,6 +410,32 @@ export function updateTransactionFields() {
   updateTransactionCategoryOptions();
   updateCardStatementOptions();
   updateInstallmentPreview();
+  updateCurrencyFields();
+}
+
+/** El monto destino solo aparece si las dos cuentas usan monedas distintas. */
+export function updateCurrencyFields() {
+  const type = $('#tx-type').value || 'expense';
+  const field = $('#field-tx-to-amount');
+  if (!field) return;
+
+  if (!['transfer', 'goal_contribution'].includes(type)) {
+    field.classList.add('hidden');
+    return;
+  }
+
+  const accounts = getSnapshot().accounts;
+  const from = accounts.find((item) => item.id === $('#tx-from-account').value);
+  const to = accounts.find((item) => item.id === $('#tx-to-account').value);
+  const cross = from && to && (from.currency || 'PEN') !== (to.currency || 'PEN');
+
+  field.classList.toggle('hidden', !cross);
+  if (cross) {
+    const rate = getSnapshot().settings.exchangeRates?.USD || 0;
+    $('#tx-to-amount-hint').textContent = rate
+      ? `Sale en ${from.currency} y entra en ${to.currency}. Referencia: 1 USD = ${rate} PEN.`
+      : `Sale en ${from.currency} y entra en ${to.currency}.`;
+  }
 }
 
 export function updateRecurringFields() {
