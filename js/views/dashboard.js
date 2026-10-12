@@ -26,7 +26,7 @@ export function renderDashboard() {
     $('#coverage-badge').textContent = 'Sin datos';
     $('#coverage-badge').className = 'chip';
     $('#coverage-note').textContent = 'El dashboard se activa cuando configures tu sueldo principal en Ajustes.';
-    $('#category-breakdown').innerHTML = '<div class="chart-empty">Registra gastos para ver el desglose por categorias.</div>';
+    $('#category-breakdown').innerHTML = '<div class="chart-empty">Registra gastos para ver el desglose por categorías.</div>';
     $('#cycle-trend-chart').innerHTML = '';
     $('#networth-chart').innerHTML = emptyMsg;
     $('#networth-trend-chip').textContent = 'Sin datos';
@@ -67,18 +67,18 @@ export function renderDashboard() {
     .sort((a, b) => FinanceDB.compareDate(a.nextClosingDate, b.nextClosingDate))[0] || null;
   const insightItems = [
     {
-      kicker: 'Proximo sueldo',
+      kicker: 'Próximo sueldo',
       title: nextSalaryDate ? formatDate(nextSalaryDate) : 'Sin fecha',
-      detail: primarySalary ? `${primarySalary.description} / dia ${primarySalary.dayOfMonth}` : 'Configura tu sueldo principal'
+      detail: primarySalary ? `${primarySalary.description} / día ${primarySalary.dayOfMonth}` : 'Configura tu sueldo principal'
     },
     {
-      kicker: 'Proximo corte',
+      kicker: 'Próximo corte',
       title: nextClosingCard ? getCardLabel(nextClosingCard.id) : 'Sin tarjetas',
       detail: nextClosingCard ? formatDate(nextClosingCard.nextClosingDate) : 'No hay corte registrado'
     },
     {
-      kicker: 'Proximo pago',
-      title: nextPendingCard ? formatCurrency(nextPendingCard.pendingAmount) : 'Al dia',
+      kicker: 'Próximo pago',
+      title: nextPendingCard ? formatCurrency(nextPendingCard.pendingAmount) : 'Al día',
       detail: nextPendingCard
         ? `${getCardLabel(nextPendingCard.cardId)} / ${nextPendingCard.dueDate ? formatDate(nextPendingCard.dueDate) : 'Sin vencimiento definido'}`
         : 'Sin estados abiertos'
@@ -114,7 +114,7 @@ export function renderDashboard() {
   $('#coverage-badge').className = `chip ${cardCoverageSummary.pendingAmount > 0 ? 'warning' : 'positive'}`;
   $('#coverage-note').textContent = cardCoverageSummary.assignedAmount > 0
     ? `${formatCurrency(cardCoverageSummary.paidAmount)} pagados de ${formatCurrency(cardCoverageSummary.assignedAmount)} asignados a este sueldo.`
-    : 'Cuando haya estados de cuenta asignados a este sueldo apareceran aqui.';
+    : 'Cuando haya estados de cuenta asignados a este sueldo aparecerán aquí.';
 
   $('#category-breakdown').innerHTML = categoryBreakdown.length
     ? categoryBreakdown
@@ -132,7 +132,7 @@ export function renderDashboard() {
           `
         )
         .join('')
-    : '<div class="chart-empty">Todavia no hay suficiente movimiento clasificado para mostrar categorias.</div>';
+    : '<div class="chart-empty">Todavía no hay suficiente movimiento clasificado para mostrar categorías.</div>';
 
   renderNetWorthChart();
 
@@ -143,7 +143,7 @@ export function renderDashboard() {
         <span class="trend-chip">${escapeHtml(formatCurrency(cycleTrendPoints[Math.floor(cycleTrendPoints.length / 2)].value))}</span>
         <span class="trend-chip">${escapeHtml(formatShortDate(cycleTrendPoints[cycleTrendPoints.length - 1].date))}</span>
       `
-    : '<span class="trend-chip">Sin ritmo aun</span>';
+    : '<span class="trend-chip">Sin ritmo aún</span>';
 }
 
 function renderNetWorthChart() {

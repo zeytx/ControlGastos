@@ -1,9 +1,9 @@
 /* Lista de movimientos y estado de almacenamiento. */
 import { TYPE_LABELS } from '../constants.js';
 import { $, $$, escapeHtml } from '../dom.js';
-import { describeTransactionAccounts, formatCurrency, formatDate, formatInstallmentLabel, formatLongDate, formatSourceLabel, getCategoryLabel, getCycleLabelById } from '../format.js';
+import { describeTransactionAccounts, formatCurrency, getAccountLabel, getCardLabel, formatDate, formatInstallmentLabel, formatLongDate, formatRelativeDay, formatSourceLabel, getCategoryIcon, getCategoryLabel, getCycleLabelById } from '../format.js';
 import { getFilteredTransactions } from '../metrics.js';
-import { getSnapshot, state } from '../state.js';
+import { getSnapshot, isSimpleMode, state } from '../state.js';
 
 export function renderQuickFilters() {
   $$('#quick-filter-row [data-quick-filter]').forEach((button) => {
@@ -14,11 +14,79 @@ export function renderQuickFilters() {
   });
 }
 
+const OUTFLOW_TYPES = new Set(['expense', 'card_charge', 'debt_payment']);
+const NEUTRAL_TYPES = new Set(['transfer', 'card_payment', 'goal_contribution']);
+
+function amountSign(item) {
+  if (item.type === 'income') return '+';
+  if (OUTFLOW_TYPES.has(item.type)) return '-';
+  return '';
+}
+
+function amountTone(item) {
+  if (item.type === 'income') return 'income';
+  if (NEUTRAL_TYPES.has(item.type)) return 'neutral';
+  return 'expense';
+}
+
+/** Fila compacta de movimiento: emoji, que fue, de donde salio y cuanto. */
+/** De donde salio o a donde entro, en pocas palabras (la fila es angosta). */
+function shortAccounts(item) {
+  if (item.type === 'expense' || item.type === 'debt_payment') return getAccountLabel(item.fromAccountId);
+  if (item.type === 'income') return getAccountLabel(item.toAccountId);
+  if (item.type === 'card_charge' || item.type === 'card_payment') return getCardLabel(item.cardId);
+  if (item.type === 'transfer' || item.type === 'goal_contribution') {
+    return [getAccountLabel(item.fromAccountId), getAccountLabel(item.toAccountId)].filter(Boolean).join(' → ');
+  }
+  return describeTransactionAccounts(item);
+}
+
+export function renderTransactionRow(item, { showDate = false } = {}) {
+  const categoryLabel = getCategoryLabel(item.categoryId) || TYPE_LABELS[item.type] || '';
+  const accountSummary = shortAccounts(item);
+  const installmentLabel = item.installmentCount > 1 ? formatInstallmentLabel(item) : '';
+  const simple = isSimpleMode();
+  const subtitle = [showDate ? formatRelativeDay(item.date) : '', categoryLabel, accountSummary]
+    .filter(Boolean)
+    .join(' · ');
+  const tags = [
+    installmentLabel,
+    item.manualOverride && !simple ? 'Editado a mano' : '',
+    item.sourceType && item.sourceType !== 'manual' && !simple ? formatSourceLabel(item.sourceType) : '',
+    item.statementCycleKey && item.type === 'card_charge' && !simple ? `Cierra ${formatDate(item.statementCycleKey)}` : ''
+  ].filter(Boolean);
+
+  return `
+    <article class="tx-row" data-transaction-id="${escapeHtml(item.id)}" tabindex="0" role="button">
+      <span class="tx-emoji" aria-hidden="true">${escapeHtml(getCategoryIcon(item.categoryId, item.type))}</span>
+      <div class="tx-main">
+        <strong class="tx-title">${escapeHtml(item.description)}</strong>
+        <span class="tx-sub">${escapeHtml(subtitle)}</span>
+        ${tags.length ? `<span class="tx-tags">${tags.map((tag) => `<span class="tx-tag">${escapeHtml(tag)}</span>`).join('')}</span>` : ''}
+      </div>
+      <strong class="tx-amount ${amountTone(item)}">${amountSign(item)}${escapeHtml(formatCurrency(item.amount))}</strong>
+    </article>
+  `;
+}
+
 export function renderTransactions() {
   const list = $('#transactions-list');
   const empty = $('#transactions-empty');
-  const filtered = getFilteredTransactions();
-  $('#transactions-count-pill').textContent = `${filtered.length} resultado${filtered.length === 1 ? '' : 's'}`;
+  // Lo mas reciente arriba, como en cualquier app de banco.
+  const filtered = getFilteredTransactions().slice().reverse();
+  $('#transactions-count-pill').textContent = `${filtered.length} movimiento${filtered.length === 1 ? '' : 's'}`;
+
+  const totals = filtered.reduce(
+    (acc, item) => {
+      if (item.type === 'income') acc.in += item.amount;
+      else if (OUTFLOW_TYPES.has(item.type)) acc.out += item.amount;
+      return acc;
+    },
+    { in: 0, out: 0 }
+  );
+  $('#transactions-totals').innerHTML = filtered.length
+    ? `<span class="total-in">Entró <strong>${escapeHtml(formatCurrency(totals.in))}</strong></span><span class="total-out">Salió <strong>${escapeHtml(formatCurrency(totals.out))}</strong></span>`
+    : '';
 
   if (!filtered.length) {
     list.innerHTML = '';
@@ -27,42 +95,23 @@ export function renderTransactions() {
   }
 
   empty.classList.add('hidden');
-  list.innerHTML = filtered
-    .map((item) => {
-      const accountSummary = describeTransactionAccounts(item);
-      const categoryLabel = getCategoryLabel(item.categoryId);
-      const cycleLabel = item.budgetCycleId ? getCycleLabelById(item.budgetCycleId) : '';
-      const installmentLabel = formatInstallmentLabel(item);
-      const amountClass =
-        item.type === 'income'
-          ? 'income'
-          : item.type === 'transfer'
-            ? 'transfer'
-            : item.type;
-      const typeBadge = (TYPE_LABELS[item.type] || item.type).slice(0, 3).toUpperCase();
+  const groups = new Map();
+  filtered.forEach((item) => {
+    if (!groups.has(item.date)) groups.set(item.date, []);
+    groups.get(item.date).push(item);
+  });
+
+  list.innerHTML = Array.from(groups.entries())
+    .map(([date, items]) => {
+      const dayOut = items.filter((item) => OUTFLOW_TYPES.has(item.type)).reduce((sum, item) => sum + item.amount, 0);
       return `
-        <article class="transaction-item" data-transaction-id="${escapeHtml(item.id)}">
-          <div class="transaction-top">
-            <div>
-              <div class="transaction-heading">
-                <span class="type-badge type-${escapeHtml(item.type)}">${escapeHtml(typeBadge)}</span>
-                <h4 class="transaction-title">${escapeHtml(item.description)}</h4>
-              </div>
-              <div class="transaction-meta">${escapeHtml(TYPE_LABELS[item.type] || item.type)} / ${escapeHtml(formatDate(item.purchaseDate || item.date))}</div>
-            </div>
-            <div class="transaction-amount ${escapeHtml(amountClass)}">${formatCurrency(item.amount)}</div>
-          </div>
-          <div class="chips-row">
-            ${categoryLabel ? `<span class="chip">${escapeHtml(categoryLabel)}</span>` : ''}
-            ${accountSummary ? `<span class="chip">${escapeHtml(accountSummary)}</span>` : ''}
-            ${cycleLabel ? `<span class="chip">${escapeHtml(cycleLabel)}</span>` : ''}
-            ${item.statementCycleKey && item.type === 'card_charge' ? `<span class="chip">Cierra ${escapeHtml(formatDate(item.statementCycleKey))}</span>` : ''}
-            ${installmentLabel ? `<span class="chip">${escapeHtml(installmentLabel)}</span>` : ''}
-            ${item.manualOverride ? '<span class="chip warning">Editado a mano</span>' : ''}
-            <span class="chip">${escapeHtml(formatSourceLabel(item.sourceType))}</span>
-          </div>
-          ${item.notes ? `<div class="transaction-foot"><span>${escapeHtml(item.notes)}</span></div>` : ''}
-        </article>
+        <section class="day-group">
+          <header class="day-head">
+            <span>${escapeHtml(formatRelativeDay(date))}</span>
+            ${dayOut > 0 ? `<span class="day-total">-${escapeHtml(formatCurrency(dayOut))}</span>` : ''}
+          </header>
+          <div class="day-items">${items.map((item) => renderTransactionRow(item)).join('')}</div>
+        </section>
       `;
     })
     .join('');
@@ -92,6 +141,6 @@ export function renderBackupStatus() {
   const status = $('#backup-status');
   const lastBackupAt = getSnapshot().settings.lastBackupAt;
   status.textContent = lastBackupAt
-    ? `Ultimo backup completo: ${formatLongDate(lastBackupAt.slice(0, 10))}.`
-    : 'Aun no has exportado un backup completo.';
+    ? `Tu última copia es del ${formatLongDate(lastBackupAt.slice(0, 10))}.`
+    : 'Aún no guardaste ninguna copia.';
 }

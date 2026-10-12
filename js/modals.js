@@ -2,7 +2,7 @@
 import { TYPE_LABELS } from './constants.js';
 import { $, closeModal, escapeHtml, openModal, renderEmptyPanel, toggleDeleteButton } from './dom.js';
 import { describeTransactionAccounts, formatCurrency, formatDate, formatInstallmentLabel, formatLongDate, formatSourceLabel, formatStatementLabel, getCardLabel, getCategoryLabel, getCycleLabelById, isInstallmentGroupTransaction } from './format.js';
-import { populateCardPaymentOptions, populateDebtAccountOptions, populateGoalAccountOptions, populateInstallmentCountOptions, populateRecurringAccountOptions, populateRecurringDayOptions, populateTransactionFormOptions, setDefaultFormDates, updateCardStatementOptions, updateRecurringFields, updateTransactionFields, populateAccountCurrencyOptions } from './options.js';
+import { ensureCategoryOption, populateCardPaymentOptions, populateDebtAccountOptions, populateGoalAccountOptions, populateInstallmentCountOptions, populateRecurringAccountOptions, populateRecurringDayOptions, populateTransactionFormOptions, setDefaultFormDates, updateCardStatementOptions, updateRecurringFields, updateTransactionFields, populateAccountCurrencyOptions } from './options.js';
 import { getCardMap, getCardStatements, getSnapshot } from './state.js';
 
 export function openTransactionModal({ transaction = null, preset = null } = {}) {
@@ -34,6 +34,7 @@ export function openTransactionModal({ transaction = null, preset = null } = {})
   populateTransactionFormOptions();
   populateInstallmentCountOptions(base.installmentCount || 1);
   $('#tx-category').value = base.categoryId || $('#tx-category').value;
+  ensureCategoryOption(base.categoryId);
   $('#tx-from-account').value = base.fromAccountId || $('#tx-from-account').value;
   $('#tx-to-account').value = base.toAccountId || $('#tx-to-account').value;
   $('#tx-card-id').value = base.cardId || '';
@@ -160,7 +161,7 @@ export function openCardStatementsModal(cardId) {
             <p>${statement.closingDate ? `Cierra ${escapeHtml(formatDate(statement.closingDate))}` : 'Deuda previa al uso de la app'}</p>
             <p>${statement.dueDate ? `Vence ${escapeHtml(formatDate(statement.dueDate))}` : 'Sin fecha de pago registrada'}</p>
             <p>Cargado ${escapeHtml(formatCurrency(statement.chargedAmount))} / Pagado ${escapeHtml(formatCurrency(statement.paidAmount))} / Pendiente ${escapeHtml(formatCurrency(statement.pendingAmount))}</p>
-            <p>${escapeHtml(statement.budgetCycleId ? getCycleLabelById(statement.budgetCycleId) : 'Sin sueldo asignado aun')}</p>
+            <p>${escapeHtml(statement.budgetCycleId ? getCycleLabelById(statement.budgetCycleId) : 'Sin sueldo asignado aún')}</p>
             ${statement.purchases?.length ? `
               <div class="detail-list">
                 ${statement.purchases
@@ -176,7 +177,7 @@ export function openCardStatementsModal(cardId) {
           </div>
         `)
         .join('')
-    : renderEmptyPanel('Sin estados aun', 'Registra compras con tarjeta para empezar a ver estados de cuenta.');
+    : renderEmptyPanel('Sin estados aún', 'Registra compras con tarjeta para empezar a ver estados de cuenta.');
   openModal('modal-card-statements');
 }
 
@@ -209,8 +210,8 @@ export function renderTransactionDetail(transaction) {
       <p>${escapeHtml(describeTransactionAccounts(transaction) || 'Sin detalle')}</p>
     </div>
     <div class="detail-card">
-      <strong>Categoria</strong>
-      <p>${escapeHtml(getCategoryLabel(transaction.categoryId) || 'Sin categoria')}</p>
+      <strong>Categoría</strong>
+      <p>${escapeHtml(getCategoryLabel(transaction.categoryId) || 'Sin categoría')}</p>
     </div>
     ${transaction.statementCycleKey ? `
       <div class="detail-card">

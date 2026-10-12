@@ -181,8 +181,8 @@ export function buildBackupAlert() {
   if (!lastBackupAt && txCount > 5) {
     return {
       kind: 'warning',
-      title: 'Aun no has hecho tu primer backup',
-      text: `Tienes ${txCount} movimientos que se perderan si borras los datos del navegador. Ve a Ajustes > Exportar JSON.`
+      title: 'Guarda una copia de tus datos',
+      text: `Tienes ${txCount} movimientos solo en este celular. Ve a Ajustes > Guardar copia y mándala a tu Drive o WhatsApp.`
     };
   }
 
@@ -193,8 +193,8 @@ export function buildBackupAlert() {
     if (daysSince > 7) {
       return {
         kind: 'info',
-        title: `Han pasado ${daysSince} dias desde tu ultimo backup`,
-        text: `Ultimo backup: ${formatLongDate(lastBackupAt.slice(0, 10))}. Exporta un JSON nuevo para proteger tus datos.`
+        title: `Tu última copia tiene ${daysSince} días`,
+        text: `Es del ${formatLongDate(lastBackupAt.slice(0, 10))}. Guarda una nueva en Ajustes > Guardar copia.`
       };
     }
   }
@@ -218,6 +218,183 @@ export function buildUnassignedChargesAlert() {
   return {
     kind: 'info',
     title: `${count} cargo${count === 1 ? '' : 's'} de tarjeta sin sueldo asignado`,
-    text: 'Son compras que cierran despues del ultimo sueldo proyectado. Se asignaran solas cuando ese sueldo exista.'
+    text: 'Son compras que cierran después del último sueldo proyectado. Se asignarán solas cuando ese sueldo exista.'
+  };
+}
+
+/* ===== Resumen de Inicio: "cuanto me queda" en lenguaje simple ===== */
+
+function isConsumption(item) {
+  return item.type === 'expense' || item.type === 'card_charge';
+}
+
+function consumptionDate(item) {
+  return item.type === 'card_charge' ? item.purchaseDate || item.date : item.date;
+}
+
+function amountInBase(item) {
+  const snapshot = getSnapshot();
+  if (item.type === 'card_charge') return item.amount;
+  const accountId = item.type === 'income' ? item.toAccountId : item.fromAccountId;
+  const currency = snapshot.accounts.find((account) => account.id === accountId)?.currency || 'PEN';
+  return FinanceDB.convertToBase(item.amount, currency, snapshot.settings);
+}
+
+function isWithin(date, startDate, endDate) {
+  return FinanceDB.compareDate(date, startDate) >= 0 && FinanceDB.compareDate(date, endDate) <= 0;
+}
+
+export function sumConsumption(startDate, endDate) {
+  return FinanceDB.roundAmount(
+    getSnapshot().transactions
+      .filter((item) => isConsumption(item) && isWithin(consumptionDate(item), startDate, endDate))
+      .reduce((sum, item) => sum + amountInBase(item), 0)
+  );
+}
+
+function sumIncome(startDate, endDate) {
+  return FinanceDB.roundAmount(
+    getSnapshot().transactions
+      .filter((item) => item.type === 'income' && isWithin(item.date, startDate, endDate))
+      .reduce((sum, item) => sum + amountInBase(item), 0)
+  );
+}
+
+function daysBetween(startDate, endDate) {
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${endDate}T12:00:00`);
+  return Math.round((end - start) / 86400000);
+}
+
+/** Ciclo de sueldo vigente; si no hay sueldo configurado, el mes calendario. */
+export function getCurrentPeriod() {
+  const snapshot = getSnapshot();
+  const today = FinanceDB.getToday();
+  const cycle = snapshot.currentCycle;
+  if (cycle && isWithin(today, cycle.startDate, cycle.endDate)) {
+    const index = snapshot.cycles.findIndex((item) => item.id === cycle.id);
+    const previous = index >= 0 ? snapshot.cycles[index + 1] || null : null;
+    return {
+      kind: 'cycle',
+      startDate: cycle.startDate,
+      endDate: cycle.endDate,
+      cycle,
+      previousStart: previous?.startDate || '',
+      previousEnd: previous?.endDate || ''
+    };
+  }
+  const startDate = `${today.slice(0, 7)}-01`;
+  const endDate = FinanceDB.addDays(FinanceDB.addMonths(startDate, 1, 1), -1);
+  const previousStart = FinanceDB.addMonths(startDate, -1, 1);
+  return {
+    kind: 'month',
+    startDate,
+    endDate,
+    cycle: null,
+    previousStart,
+    previousEnd: FinanceDB.addDays(startDate, -1)
+  };
+}
+
+export function getHomeSummary() {
+  const snapshot = getSnapshot();
+  const today = FinanceDB.getToday();
+  const period = getCurrentPeriod();
+  const spentSoFar = sumConsumption(period.startDate, today);
+  const spentToday = sumConsumption(today, today);
+  const incomeSoFar = sumIncome(period.startDate, today);
+  const daysLeft = Math.max(1, daysBetween(today, period.endDate) + 1);
+  const elapsedDays = Math.max(0, daysBetween(period.startDate, today));
+  const totalDays = Math.max(1, daysBetween(period.startDate, period.endDate) + 1);
+
+  // Que numero grande mostrar: tope > sobrante del ciclo > balance del mes.
+  const monthlyBudget = FinanceDB.roundAmount(snapshot.settings.monthlyBudget || 0);
+  let headline;
+  if (monthlyBudget > 0) {
+    const engineBudget = period.kind === 'cycle' && snapshot.budget?.enabled && snapshot.budget.limit > 0 ? snapshot.budget : null;
+    const spent = engineBudget ? engineBudget.spent : spentSoFar;
+    const remaining = FinanceDB.roundAmount(monthlyBudget - spent);
+    headline = {
+      kind: 'budget',
+      label: remaining >= 0 ? 'Te queda de tu tope' : 'Te pasaste de tu tope',
+      amount: Math.abs(remaining),
+      tone: remaining < 0 ? 'danger' : remaining < monthlyBudget * 0.15 ? 'warning' : 'positive',
+      ratio: Math.min(1, spent / monthlyBudget),
+      detail: `${formatCurrency(spent)} de ${formatCurrency(monthlyBudget)}`,
+      available: Math.max(0, remaining)
+    };
+  } else if (period.kind === 'cycle') {
+    const free = FinanceDB.roundAmount(period.cycle.freeNetAmount ?? 0);
+    headline = {
+      kind: 'cycle',
+      label: free >= 0 ? 'Te queda libre hasta tu sueldo' : 'Te falta para cubrir tus pagos',
+      amount: Math.abs(free),
+      tone: free < 0 ? 'danger' : 'positive',
+      ratio: null,
+      detail: 'Ya descontando tarjetas y deudas de este sueldo',
+      available: Math.max(0, free)
+    };
+  } else if (incomeSoFar > 0) {
+    const balance = FinanceDB.roundAmount(incomeSoFar - spentSoFar);
+    headline = {
+      kind: 'balance',
+      label: balance >= 0 ? 'Te sobra este mes' : 'Gastaste más de lo que entró',
+      amount: Math.abs(balance),
+      tone: balance < 0 ? 'danger' : 'positive',
+      ratio: null,
+      detail: `Entraron ${formatCurrency(incomeSoFar)} y salieron ${formatCurrency(spentSoFar)}`,
+      available: Math.max(0, balance)
+    };
+  } else {
+    headline = {
+      kind: 'spent',
+      label: 'Gastaste este mes',
+      amount: spentSoFar,
+      tone: 'neutral',
+      ratio: null,
+      detail: spentSoFar > 0 ? 'Anota tus ingresos para ver cuánto te sobra' : 'Anota tu primer gasto con el botón +',
+      available: 0
+    };
+  }
+
+  let comparison = null;
+  if (period.previousStart) {
+    const previousCut = FinanceDB.addDays(period.previousStart, elapsedDays);
+    const previousSpent = sumConsumption(period.previousStart, previousCut);
+    if (previousSpent > 0) {
+      comparison = {
+        diff: FinanceDB.roundAmount(spentSoFar - previousSpent),
+        previousSpent
+      };
+    }
+  }
+
+  const byCategory = new Map();
+  snapshot.transactions
+    .filter((item) => isConsumption(item) && isWithin(consumptionDate(item), period.startDate, today))
+    .forEach((item) => {
+      const key = item.categoryId || 'other-expense';
+      byCategory.set(key, FinanceDB.roundAmount((byCategory.get(key) || 0) + amountInBase(item)));
+    });
+  const topCategories = Array.from(byCategory.entries())
+    .map(([categoryId, amount]) => ({ categoryId, amount, ratio: spentSoFar > 0 ? amount / spentSoFar : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+
+  return {
+    period,
+    today,
+    spentSoFar,
+    spentToday,
+    incomeSoFar,
+    daysLeft,
+    elapsedDays,
+    totalDays,
+    perDay: headline.available > 0 ? FinanceDB.roundAmount(headline.available / daysLeft) : 0,
+    headline,
+    comparison,
+    topCategories,
+    // Los recurrentes se proyectan a futuro: "ultimos" son solo los que ya pasaron.
+    recent: snapshot.transactions.filter((item) => FinanceDB.compareDate(item.date, today) <= 0).slice(0, 5)
   };
 }

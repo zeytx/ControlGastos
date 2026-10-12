@@ -21,9 +21,9 @@ export function describeNotificationState() {
   }
   if (Notification.permission === 'granted') return 'Avisos activos en este dispositivo.';
   if (Notification.permission === 'denied') {
-    return 'Bloqueaste los avisos. Habilitalos desde los ajustes del navegador para esta pagina.';
+    return 'Bloqueaste los avisos. Habilítalos desde los ajustes del navegador para esta página.';
   }
-  return 'Los avisos estan disponibles pero aun no los activaste.';
+  return 'Los avisos están disponibles pero aún no los activaste.';
 }
 
 export async function requestNotificationPermission() {
@@ -58,7 +58,7 @@ export function collectCardAlerts(daysBefore = 3) {
           key: `close-${card.id}-${card.nextClosingDate}`,
           kind: 'close',
           title: `${label} corta el ${formatDate(card.nextClosingDate)}`,
-          body: 'Lo que compres despues ya entra al siguiente estado de cuenta.'
+          body: 'Lo que compres después ya entra al siguiente estado de cuenta.'
         });
       }
 

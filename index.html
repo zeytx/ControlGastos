@@ -3,433 +3,686 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Control financiero local para iPhone y GitHub Pages, con datos en el dispositivo y apoyo opcional de IA.">
-  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Anota tus gastos en segundos y mira cuánto te queda hasta tu próximo sueldo. Tus datos se quedan en tu celular.">
+  <meta name="theme-color" content="#0B0B12">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Finanzas Locales">
+  <meta name="apple-mobile-web-app-title" content="Finanzas">
+  <meta name="format-detection" content="telephone=no">
   <title>Finanzas Locales</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=4.0.0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css?v=5.0.0">
+  <script>
+    /* Antes de pintar: tema y tamaño de letra guardados, para que no parpadee. */
+    (function () {
+      try {
+        var theme = localStorage.getItem('theme') || 'dark';
+        if (theme === 'auto') theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+      } catch (error) {}
+    })();
+  </script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Ir al contenido</a>
   <div class="app-shell">
     <header class="app-header">
       <div class="brand-block">
-        <div class="brand-mark">S/</div>
+        <div class="brand-mark" aria-hidden="true">S/</div>
         <div>
-          <p class="eyebrow">Finanzas locales</p>
-          <h1>Tu app que no es app</h1>
-          <p class="subtitle" id="header-subtitle">Todo queda en este dispositivo, excepto la IA cuando tu la usas.</p>
-          <p class="section-title" id="section-title">Resumen del ciclo</p>
+          <h1 class="app-title">Finanzas</h1>
+          <p class="section-title" id="section-title">Tu dinero de un vistazo</p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="icon-button" id="btn-open-actions" aria-label="Agregar">
-          <span>＋</span>
+        <button class="icon-button hidden" id="btn-header-install" aria-label="Instalar en mi celular" title="Instalar en mi celular">
+          <span data-icon="download"></span>
         </button>
-        <button class="icon-button" id="btn-open-settings" aria-label="Ajustes">
-          <span>⚙</span>
+        <button class="icon-button" id="btn-open-actions" aria-label="Más acciones" title="Más acciones">
+          <span data-icon="plus"></span>
+        </button>
+        <button class="icon-button" id="btn-open-settings" aria-label="Ajustes" title="Ajustes">
+          <span data-icon="gear"></span>
         </button>
       </div>
     </header>
 
     <nav class="tab-bar" id="tab-bar" role="tablist" aria-label="Secciones">
       <button class="tab-button" data-tab="inicio" role="tab" id="tab-inicio" aria-controls="panel-inicio" aria-selected="false" tabindex="-1">
-        <span class="tab-icon" aria-hidden="true">◉</span>
+        <span class="tab-icon" data-icon="home" aria-hidden="true"></span>
         <span class="tab-label">Inicio</span>
       </button>
       <button class="tab-button" data-tab="movimientos" role="tab" id="tab-movimientos" aria-controls="panel-movimientos" aria-selected="false" tabindex="-1">
-        <span class="tab-icon" aria-hidden="true">≡</span>
-        <span class="tab-label">Movs</span>
+        <span class="tab-icon" data-icon="list" aria-hidden="true"></span>
+        <span class="tab-label">Movimientos</span>
       </button>
       <button class="tab-button" data-tab="tarjetas" role="tab" id="tab-tarjetas" aria-controls="panel-tarjetas" aria-selected="false" tabindex="-1">
-        <span class="tab-icon" aria-hidden="true">▤</span>
+        <span class="tab-icon" data-icon="card" aria-hidden="true"></span>
         <span class="tab-label">Tarjetas</span>
       </button>
       <button class="tab-button" data-tab="cuentas" role="tab" id="tab-cuentas" aria-controls="panel-cuentas" aria-selected="false" tabindex="-1">
-        <span class="tab-icon" aria-hidden="true">$</span>
+        <span class="tab-icon" data-icon="wallet" aria-hidden="true"></span>
         <span class="tab-label">Cuentas</span>
       </button>
       <button class="tab-button" data-tab="plan" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" tabindex="-1">
-        <span class="tab-icon" aria-hidden="true">◆</span>
-        <span class="tab-label">Plan</span>
+        <span class="tab-icon" data-icon="target" aria-hidden="true"></span>
+        <span class="tab-label"><span class="only-full">Plan</span><span class="only-simple">Metas</span></span>
       </button>
     </nav>
-    <main class="main-content">
+
+    <main class="main-content" id="main-content">
+      <!-- ================= INICIO ================= -->
       <div class="tab-panel hidden" id="panel-inicio" data-panel="inicio" role="tabpanel" aria-labelledby="tab-inicio">
-      <section class="install-card hidden" id="install-card">
-        <div>
-          <p class="install-title">Instalala antes de cargar muchos datos</p>
-          <p class="install-text" id="install-copy"></p>
-        </div>
-        <div class="install-actions">
-          <button class="btn-secondary" id="btn-install-dismiss">Entendido</button>
-        </div>
-      </section>
+        <section class="home-card" id="home-summary" aria-live="polite"></section>
 
-      <section class="hero-card">
-        <div class="hero-top">
-          <div>
-            <p class="eyebrow">Resumen del ciclo</p>
-            <h2 id="cycle-label">Ciclo sin configurar</h2>
-            <p class="subtitle" id="cycle-subtitle">Configura tu sueldo principal para empezar a trabajar por ciclos.</p>
+        <section class="install-card hidden" id="install-card">
+          <div class="install-icon" aria-hidden="true">📲</div>
+          <div class="install-body">
+            <p class="install-title">Ponla en tu pantalla de inicio</p>
+            <p class="install-text" id="install-copy"></p>
           </div>
-          <div class="month-switcher">
-            <button class="icon-button small" id="btn-prev-cycle" aria-label="Ciclo anterior"><</button>
-            <button class="icon-button small" id="btn-next-cycle" aria-label="Ciclo siguiente">></button>
+          <div class="install-actions">
+            <button class="btn-primary" id="btn-install-card">Instalar</button>
+            <button class="btn-ghost" id="btn-install-dismiss">Ahora no</button>
           </div>
-        </div>
+        </section>
 
-        <div class="cycle-history-bar">
-          <label class="cycle-history-label" for="cycle-history-select">Historial por sueldo</label>
-          <select id="cycle-history-select" aria-label="Seleccionar ciclo por sueldo">
-            <option value="">Sin ciclos aun</option>
-          </select>
-        </div>
-
-        <div class="hero-stats">
-          <article class="hero-stat stat-income">
-            <span class="stat-label">Ingresos</span>
-            <strong id="summary-income">S/ 0.00</strong>
-          </article>
-          <article class="hero-stat stat-expense">
-            <span class="stat-label">Salidas cash</span>
-            <strong id="summary-cash-spend">S/ 0.00</strong>
-          </article>
-          <article class="hero-stat stat-count">
-            <span class="stat-label">Tarjetas a cubrir</span>
-            <strong id="summary-card-assigned">S/ 0.00</strong>
-          </article>
-          <article class="hero-stat stat-net">
-            <span class="stat-label">Libre neto</span>
-            <strong id="summary-free">S/ 0.00</strong>
-          </article>
-        </div>
-
-        <div class="cycle-progress-row" id="cycle-progress-row">
-          <div class="progress-track compact-track"><div class="progress-fill cycle-time-fill" id="cycle-time-fill" style="width: 0%"></div></div>
-          <span class="cycle-progress-label" id="cycle-progress-label"></span>
-        </div>
-
-        <div class="budget-card">
-          <div class="budget-copy">
-            <span class="budget-title">Lectura del ciclo</span>
-            <span class="budget-meta" id="cycle-meta">Sin sueldo principal configurado</span>
-          </div>
-          <div class="chips-row" id="cycle-chips"></div>
-          <p class="budget-note" id="cycle-note">Cuando llegue el siguiente sueldo, el sobrante libre de este ciclo se podra mover automaticamente a ahorro.</p>
-        </div>
-
-        <div class="budget-card hidden" id="budget-progress-card">
-          <div class="budget-copy">
-            <span class="budget-title">Tope del ciclo</span>
-            <span class="budget-meta" id="budget-progress-meta"></span>
-          </div>
-          <div id="budget-global-row">
-            <div class="progress-track compact-track">
-              <div class="progress-fill" id="budget-progress-fill" style="width: 0%"></div>
+        <section class="section-block">
+          <div class="section-header row">
+            <div>
+              <h3>Lo último que anotaste</h3>
             </div>
-            <p class="budget-note" id="budget-progress-note"></p>
+            <button class="btn-ghost" id="btn-home-see-all">Ver todo</button>
           </div>
-          <div class="breakdown-list" id="budget-category-list"></div>
-        </div>
+          <div class="tx-list" id="home-recent"></div>
+        </section>
 
-        <div class="budget-card hidden" id="sweep-suggestion-card">
-          <div class="budget-copy">
-            <span class="budget-title">Sobrante de este ciclo</span>
-            <span class="budget-meta" id="sweep-suggestion-meta"></span>
-          </div>
-          <p class="budget-note" id="sweep-suggestion-note"></p>
-          <div class="panel-actions">
-            <button class="btn-primary" id="btn-confirm-sweep">Registrar traslado a ahorro</button>
-            <button class="btn-secondary hidden" id="btn-undo-sweep">Deshacer traslado</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="section-block premium-dashboard">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Panel</p>
-            <h3>Dashboard del ciclo</h3>
-          </div>
-          <span class="section-pill" id="dashboard-pill">Sin lectura</span>
-        </div>
-
-        <div class="dashboard-grid">
-          <article class="dashboard-card spotlight-card">
-            <div class="dashboard-card-header">
-              <div>
-                <p class="eyebrow">Balance visual</p>
-                <h4>Dinero libre vs comprometido</h4>
-              </div>
+        <section class="section-block" id="home-categories-block">
+          <div class="section-header">
+            <div>
+              <h3>¿En qué se va tu plata?</h3>
             </div>
-            <div class="donut-shell" id="balance-donut"></div>
-            <div class="metric-legend" id="balance-legend"></div>
-          </article>
+          </div>
+          <div class="cat-bars" id="home-categories"></div>
+        </section>
 
-          <article class="dashboard-card insights-card">
-            <div class="dashboard-card-header">
-              <div>
-                <p class="eyebrow">Panel rapido</p>
-                <h4>Lo que viene</h4>
-              </div>
+        <section class="hero-card only-full">
+          <div class="hero-top">
+            <div>
+              <p class="eyebrow">Resumen del ciclo</p>
+              <h2 id="cycle-label">Ciclo sin configurar</h2>
+              <p class="subtitle" id="cycle-subtitle">Configura tu sueldo principal para empezar a trabajar por ciclos.</p>
             </div>
-            <div class="insight-list" id="insights-list"></div>
-            <div class="coverage-stack">
-              <div class="coverage-head">
-                <strong>Cobertura de tarjetas</strong>
-                <span id="coverage-badge" class="chip">Sin datos</span>
-              </div>
+            <div class="month-switcher">
+              <button class="icon-button small" id="btn-prev-cycle" aria-label="Ciclo anterior"><span data-icon="chevronLeft" data-icon-size="18"></span></button>
+              <button class="icon-button small" id="btn-next-cycle" aria-label="Ciclo siguiente"><span data-icon="chevronRight" data-icon-size="18"></span></button>
+            </div>
+          </div>
+
+          <div class="cycle-history-bar">
+            <label class="cycle-history-label" for="cycle-history-select">Historial por sueldo</label>
+            <select id="cycle-history-select" aria-label="Seleccionar ciclo por sueldo">
+              <option value="">Sin ciclos aún</option>
+            </select>
+          </div>
+
+          <div class="hero-stats">
+            <article class="hero-stat stat-income">
+              <span class="stat-label">Ingresos</span>
+              <strong id="summary-income">S/ 0.00</strong>
+            </article>
+            <article class="hero-stat stat-expense">
+              <span class="stat-label">Gastos (efectivo y debito)</span>
+              <strong id="summary-cash-spend">S/ 0.00</strong>
+            </article>
+            <article class="hero-stat stat-count">
+              <span class="stat-label">Tarjetas por pagar</span>
+              <strong id="summary-card-assigned">S/ 0.00</strong>
+            </article>
+            <article class="hero-stat stat-net">
+              <span class="stat-label">Te queda libre</span>
+              <strong id="summary-free">S/ 0.00</strong>
+            </article>
+          </div>
+
+          <div class="cycle-progress-row" id="cycle-progress-row">
+            <div class="progress-track compact-track"><div class="progress-fill cycle-time-fill" id="cycle-time-fill" style="width: 0%"></div></div>
+            <span class="cycle-progress-label" id="cycle-progress-label"></span>
+          </div>
+
+          <div class="budget-card">
+            <div class="budget-copy">
+              <span class="budget-title">Lectura del ciclo</span>
+              <span class="budget-meta" id="cycle-meta">Sin sueldo principal configurado</span>
+            </div>
+            <div class="chips-row" id="cycle-chips"></div>
+            <p class="budget-note" id="cycle-note">Cuando llegue el siguiente sueldo, el sobrante libre de este ciclo se podrá mover automáticamente a ahorro.</p>
+          </div>
+
+          <div class="budget-card hidden" id="budget-progress-card">
+            <div class="budget-copy">
+              <span class="budget-title">Tope del ciclo</span>
+              <span class="budget-meta" id="budget-progress-meta"></span>
+            </div>
+            <div id="budget-global-row">
               <div class="progress-track compact-track">
-                <div class="progress-fill coverage-fill" id="coverage-fill" style="width: 0%"></div>
+                <div class="progress-fill" id="budget-progress-fill" style="width: 0%"></div>
               </div>
-              <p class="budget-note" id="coverage-note">Cuando haya estados de cuenta asignados a este sueldo apareceran aqui.</p>
+              <p class="budget-note" id="budget-progress-note"></p>
             </div>
-          </article>
-
-          <article class="dashboard-card networth-card">
-            <div class="dashboard-card-header">
-              <div>
-                <p class="eyebrow">Evolucion</p>
-                <h4>Patrimonio por ciclo</h4>
-              </div>
-              <span class="chip" id="networth-trend-chip">Sin datos</span>
-            </div>
-            <div class="chart-shell" id="networth-chart"></div>
-          </article>
-
-          <article class="dashboard-card breakdown-card">
-            <div class="dashboard-card-header">
-              <div>
-                <p class="eyebrow">Categorias</p>
-                <h4>Donde se va el dinero</h4>
-              </div>
-            </div>
-            <div class="breakdown-list" id="category-breakdown"></div>
-          </article>
-
-          <article class="dashboard-card trend-card">
-            <div class="dashboard-card-header">
-              <div>
-                <p class="eyebrow">Ritmo</p>
-                <h4>Tendencia del ciclo</h4>
-              </div>
-            </div>
-            <div class="trend-chart" id="cycle-trend-chart"></div>
-            <div class="trend-summary" id="trend-summary"></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="alerts-card">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Pendientes</p>
-            <h3>Alertas del ciclo</h3>
+            <div class="breakdown-list" id="budget-category-list"></div>
           </div>
-        </div>
-        <div class="alerts-list" id="alerts-list"></div>
-      </section>
 
+          <div class="budget-card hidden" id="sweep-suggestion-card">
+            <div class="budget-copy">
+              <span class="budget-title">Sobrante de este ciclo</span>
+              <span class="budget-meta" id="sweep-suggestion-meta"></span>
+            </div>
+            <p class="budget-note" id="sweep-suggestion-note"></p>
+            <div class="panel-actions">
+              <button class="btn-primary" id="btn-confirm-sweep">Registrar traslado a ahorro</button>
+              <button class="btn-secondary hidden" id="btn-undo-sweep">Deshacer traslado</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-block premium-dashboard only-full">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Panel</p>
+              <h3>Dashboard del ciclo</h3>
+            </div>
+            <span class="section-pill" id="dashboard-pill">Sin lectura</span>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="dashboard-card spotlight-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="eyebrow">Balance visual</p>
+                  <h4>Dinero libre vs comprometido</h4>
+                </div>
+              </div>
+              <div class="donut-shell" id="balance-donut"></div>
+              <div class="metric-legend" id="balance-legend"></div>
+            </article>
+
+            <article class="dashboard-card insights-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="eyebrow">Panel rápido</p>
+                  <h4>Lo que viene</h4>
+                </div>
+              </div>
+              <div class="insight-list" id="insights-list"></div>
+              <div class="coverage-stack">
+                <div class="coverage-head">
+                  <strong>Cobertura de tarjetas</strong>
+                  <span id="coverage-badge" class="chip">Sin datos</span>
+                </div>
+                <div class="progress-track compact-track">
+                  <div class="progress-fill coverage-fill" id="coverage-fill" style="width: 0%"></div>
+                </div>
+                <p class="budget-note" id="coverage-note">Cuando haya estados de cuenta asignados a este sueldo aparecerán aquí.</p>
+              </div>
+            </article>
+
+            <article class="dashboard-card networth-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="eyebrow">Evolución</p>
+                  <h4>Patrimonio por ciclo</h4>
+                </div>
+                <span class="chip" id="networth-trend-chip">Sin datos</span>
+              </div>
+              <div class="chart-shell" id="networth-chart"></div>
+            </article>
+
+            <article class="dashboard-card breakdown-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="eyebrow">Categorías</p>
+                  <h4>Donde se va el dinero</h4>
+                </div>
+              </div>
+              <div class="breakdown-list" id="category-breakdown"></div>
+            </article>
+
+            <article class="dashboard-card trend-card">
+              <div class="dashboard-card-header">
+                <div>
+                  <p class="eyebrow">Ritmo</p>
+                  <h4>Tendencia del ciclo</h4>
+                </div>
+              </div>
+              <div class="trend-chart" id="cycle-trend-chart"></div>
+              <div class="trend-summary" id="trend-summary"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="alerts-card">
+          <div class="section-header">
+            <div>
+              <h3>Avisos</h3>
+            </div>
+          </div>
+          <div class="alerts-list" id="alerts-list"></div>
+        </section>
       </div>
+
+      <!-- ================= MOVIMIENTOS ================= -->
       <div class="tab-panel hidden" id="panel-movimientos" data-panel="movimientos" role="tabpanel" aria-labelledby="tab-movimientos">
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Explorar</p>
-            <h3>Movimientos del ciclo</h3>
+        <section class="section-block">
+          <div class="period-switcher only-cycles">
+            <button class="icon-button small" id="btn-movs-prev" aria-label="Período anterior"><span data-icon="chevronLeft" data-icon-size="18"></span></button>
+            <div class="period-copy">
+              <strong id="movs-period-label">Todos</strong>
+              <span id="movs-period-range"></span>
+            </div>
+            <button class="icon-button small" id="btn-movs-next" aria-label="Período siguiente"><span data-icon="chevronRight" data-icon-size="18"></span></button>
           </div>
-          <span class="section-pill" id="transactions-count-pill">0 resultados</span>
-        </div>
 
-        <div class="filters-card">
-          <div class="quick-filter-row" id="quick-filter-row">
-            <button class="filter-pill active" data-quick-filter="all">Todo</button>
-            <button class="filter-pill" data-quick-filter="expense">Cash</button>
-            <button class="filter-pill" data-quick-filter="card_charge">Tarjeta</button>
-            <button class="filter-pill" data-quick-filter="income">Ingresos</button>
-            <button class="filter-pill" data-quick-filter="transfer">Transferencias</button>
-            <button class="filter-pill" data-quick-filter="card_payment">Pagos</button>
+          <div class="section-header row">
+            <div>
+              <h3>Movimientos</h3>
+            </div>
+            <span class="section-pill" id="transactions-count-pill">0 movimientos</span>
           </div>
-          <label class="field">
-            <span>Buscar</span>
-            <input type="search" id="filter-search" placeholder="Concepto, nota o palabra clave">
-          </label>
-          <div class="filters-grid">
-            <label class="field">
-              <span>Tipo</span>
-              <select id="filter-type">
-                <option value="all">Todos</option>
-                <option value="expense">Gasto</option>
-                <option value="income">Ingreso</option>
-                <option value="transfer">Transferencia</option>
-                <option value="card_charge">Compra tarjeta</option>
-                <option value="card_payment">Pago tarjeta</option>
-                <option value="debt_payment">Pago deuda</option>
-                <option value="goal_contribution">Aporte meta</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Cuenta</span>
-              <select id="filter-account">
-                <option value="all">Todas</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Tarjeta</span>
-              <select id="filter-card">
-                <option value="all">Todas</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Categoria</span>
-              <select id="filter-category">
-                <option value="all">Todas</option>
-              </select>
-            </label>
-          </div>
-        </div>
 
-        <div class="list-stack" id="transactions-list"></div>
-        <div class="empty-state hidden" id="transactions-empty">
-          <div class="empty-icon">[]</div>
-          <h3>Aun no hay movimientos para este ciclo</h3>
-          <p>Agrega gastos, ingresos, compras con tarjeta o usa la IA para crear un borrador revisable.</p>
-        </div>
-      </section>
+          <div class="totals-strip" id="transactions-totals"></div>
+
+          <div class="filters-card">
+            <label class="search-field">
+              <span class="search-icon" data-icon="search" data-icon-size="18" aria-hidden="true"></span>
+              <input type="search" id="filter-search" placeholder="Buscar: menú, taxi, luz..." aria-label="Buscar movimientos">
+            </label>
+            <div class="quick-filter-row" id="quick-filter-row">
+              <button class="filter-pill active" data-quick-filter="all">Todo</button>
+              <button class="filter-pill" data-quick-filter="expense">Gastos</button>
+              <button class="filter-pill" data-quick-filter="income">Ingresos</button>
+              <button class="filter-pill only-cards" data-quick-filter="card_charge">Con tarjeta</button>
+              <button class="filter-pill" data-quick-filter="transfer">Transferencias</button>
+              <button class="filter-pill only-cards" data-quick-filter="card_payment">Pagos de tarjeta</button>
+            </div>
+            <details class="more-filters">
+              <summary>Más filtros</summary>
+              <div class="filters-grid">
+                <label class="field">
+                  <span>Tipo</span>
+                  <select id="filter-type">
+                    <option value="all">Todos</option>
+                    <option value="expense">Gasto</option>
+                    <option value="income">Ingreso</option>
+                    <option value="transfer">Transferencia</option>
+                    <option value="card_charge">Compra tarjeta</option>
+                    <option value="card_payment">Pago tarjeta</option>
+                    <option value="debt_payment">Pago deuda</option>
+                    <option value="goal_contribution">Aporte meta</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Cuenta</span>
+                  <select id="filter-account">
+                    <option value="all">Todas</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Tarjeta</span>
+                  <select id="filter-card">
+                    <option value="all">Todas</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Categoría</span>
+                  <select id="filter-category">
+                    <option value="all">Todas</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+          </div>
+
+          <div class="tx-list" id="transactions-list"></div>
+          <div class="empty-state hidden" id="transactions-empty">
+            <div class="empty-icon" aria-hidden="true">📝</div>
+            <h3>No hay movimientos aquí</h3>
+            <p>Toca el botón <strong>+</strong> para anotar un gasto o un ingreso. Si buscaste algo, prueba con otra palabra.</p>
+          </div>
+        </section>
       </div>
+
+      <!-- ================= TARJETAS ================= -->
       <div class="tab-panel hidden" id="panel-tarjetas" data-panel="tarjetas" role="tabpanel" aria-labelledby="tab-tarjetas">
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Tarjetas</p>
-            <h3>Corte y pago</h3>
+        <section class="section-block">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Tarjetas de crédito</p>
+              <h3>Corte y pago</h3>
+            </div>
+            <button class="btn-secondary" id="btn-add-card">Nueva tarjeta</button>
           </div>
-          <button class="btn-secondary" id="btn-add-card">Nueva tarjeta</button>
-        </div>
-        <div class="cards-grid" id="cards-summary-grid"></div>
-      </section>
-
+          <div class="cards-grid" id="cards-summary-grid"></div>
+        </section>
       </div>
+
+      <!-- ================= CUENTAS ================= -->
       <div class="tab-panel hidden" id="panel-cuentas" data-panel="cuentas" role="tabpanel" aria-labelledby="tab-cuentas">
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Patrimonio</p>
-            <h3>Cuentas</h3>
+        <section class="section-block">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Dónde está tu dinero</p>
+              <h3>Cuentas</h3>
+            </div>
+            <button class="btn-secondary" id="btn-add-account">Nueva cuenta</button>
           </div>
-          <button class="btn-secondary" id="btn-add-account">Nueva cuenta</button>
-        </div>
-        <div class="cards-grid" id="accounts-grid"></div>
-      </section>
+          <div class="cards-grid" id="accounts-grid"></div>
+        </section>
 
+        <section class="section-block no-cards-callout">
+          <div class="callout">
+            <span class="callout-emoji" aria-hidden="true">💳</span>
+            <div>
+              <strong>¿Usas tarjeta de crédito?</strong>
+              <p>Agrégala y la app te avisa cuando cierra y cuando vence, y te dice cuánto tienes que pagar.</p>
+            </div>
+          </div>
+          <button class="btn-secondary btn-full" id="btn-add-card-callout">Agregar tarjeta de crédito</button>
+        </section>
       </div>
+
+      <!-- ================= PLAN ================= -->
       <div class="tab-panel hidden" id="panel-plan" data-panel="plan" role="tabpanel" aria-labelledby="tab-plan">
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Motor del ciclo</p>
-            <h3>Configuracion activa</h3>
+        <section class="section-block only-full">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Motor del ciclo</p>
+              <h3>Configuración activa</h3>
+            </div>
+            <button class="btn-secondary" id="btn-open-cycle-settings">Editar</button>
           </div>
-          <button class="btn-secondary" id="btn-open-cycle-settings">Editar</button>
-        </div>
-        <div class="detail-stack" id="cycle-config-preview"></div>
-      </section>
+          <div class="detail-stack" id="cycle-config-preview"></div>
+        </section>
 
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Ahorro</p>
-            <h3>Metas</h3>
+        <section class="section-block">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Ahorro</p>
+              <h3>Metas</h3>
+            </div>
+            <button class="btn-secondary" id="btn-add-goal">Nueva meta</button>
           </div>
-          <button class="btn-secondary" id="btn-add-goal">Nueva meta</button>
-        </div>
-        <div class="cards-grid" id="goals-grid"></div>
-      </section>
+          <div class="cards-grid" id="goals-grid"></div>
+        </section>
 
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Obligaciones</p>
-            <h3>Deudas no tarjeta</h3>
+        <section class="section-block">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Prestamos y cuotas</p>
+              <h3>Deudas</h3>
+            </div>
+            <button class="btn-secondary" id="btn-add-debt">Nueva deuda</button>
           </div>
-          <button class="btn-secondary" id="btn-add-debt">Nueva deuda</button>
-        </div>
-        <div class="cards-grid" id="debts-grid"></div>
-      </section>
+          <div class="cards-grid" id="debts-grid"></div>
+        </section>
 
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Automatico</p>
-            <h3>Recurrentes</h3>
+        <section class="section-block">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Todos los meses</p>
+              <h3>Pagos e ingresos fijos</h3>
+            </div>
+            <button class="btn-secondary" id="btn-add-recurring">Nuevo fijo</button>
           </div>
-          <button class="btn-secondary" id="btn-add-recurring">Nuevo recurrente</button>
-        </div>
-        <div class="cards-grid compact-grid" id="recurring-grid"></div>
-      </section>
+          <div class="cards-grid compact-grid" id="recurring-grid"></div>
+        </section>
 
-      <section class="section-block">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Agenda</p>
-            <h3>Fechas clave</h3>
+        <section class="section-block">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Agenda</p>
+              <h3>Fechas clave</h3>
+            </div>
           </div>
-        </div>
-        <div class="list-stack" id="agenda-list"></div>
-      </section>
-
+          <div class="list-stack" id="agenda-list"></div>
+        </section>
       </div>
     </main>
   </div>
 
-  <button class="fab" id="fab-add" aria-label="Agregar movimiento">+</button>
-  <button class="scroll-top-btn hidden" id="scroll-top" aria-label="Volver arriba">&uarr;</button>
+  <button class="fab" id="fab-add" aria-label="Anotar gasto" title="Anotar gasto"><span data-icon="plus" data-icon-size="28"></span></button>
+  <button class="scroll-top-btn hidden" id="scroll-top" aria-label="Volver arriba"><span data-icon="arrowUp" data-icon-size="20"></span></button>
 
-  <div class="modal-overlay" id="modal-actions" role="dialog" aria-modal="true">
+  <!-- ================= CAPTURA RAPIDA ================= -->
+  <div class="modal-overlay" id="modal-quick" role="dialog" aria-modal="true" aria-labelledby="quick-title">
+    <div class="modal-sheet quick-sheet">
+      <div class="modal-handle"></div>
+      <h2 class="visually-hidden" id="quick-title">Anotar</h2>
+      <form id="quick-form" class="quick-form" novalidate>
+        <div class="segmented" id="quick-type" role="group" aria-label="Tipo">
+          <button type="button" data-qtype="expense" class="active" aria-pressed="true">Gasto</button>
+          <button type="button" data-qtype="income" aria-pressed="false">Ingreso</button>
+        </div>
+
+        <label class="amount-field" id="quick-amount-wrap">
+          <span class="amount-currency">S/</span>
+          <input type="text" id="quick-amount" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0.00" aria-label="Monto">
+        </label>
+
+        <p class="quick-label" id="quick-category-label">¿En qué gastaste?</p>
+        <div class="cat-grid" id="quick-categories"></div>
+
+        <p class="quick-label" id="quick-method-label">¿Con qué pagaste?</p>
+        <div class="chip-scroller" id="quick-methods"></div>
+
+        <label class="field hidden" id="quick-installments-field">
+          <span>Cuotas</span>
+          <select id="quick-installments"></select>
+        </label>
+
+        <p class="quick-label">¿Cuándo?</p>
+        <div class="chip-scroller" id="quick-dates">
+          <button type="button" class="choice-chip active" data-date-choice="today">Hoy</button>
+          <button type="button" class="choice-chip" data-date-choice="yesterday">Ayer</button>
+          <button type="button" class="choice-chip" data-date-choice="other"><span aria-hidden="true">📅</span> Otro día</button>
+          <input type="date" id="quick-date" class="hidden date-inline" aria-label="Fecha">
+        </div>
+
+        <label class="field">
+          <span>Nota (opcional)</span>
+          <input type="text" id="quick-note" maxlength="80" placeholder="Ej: menú del día, taxi al trabajo" autocomplete="off" enterkeyhint="done">
+        </label>
+
+        <button type="submit" class="btn-primary btn-full btn-big" id="quick-save">Guardar gasto</button>
+        <button type="button" class="btn-link" id="quick-more">Más opciones (transferencias, pagos, cuotas...)</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= CATEGORIA ================= -->
+  <div class="modal-overlay" id="modal-category" role="dialog" aria-modal="true" aria-labelledby="category-modal-title">
+    <div class="modal-sheet compact-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Categorías</p>
+          <h2 id="category-modal-title">Nueva categoría</h2>
+        </div>
+      </div>
+      <form id="category-form" class="form-stack">
+        <label class="field">
+          <span>Nombre</span>
+          <input type="text" id="category-name" maxlength="40" placeholder="Ej: Mascota, Gimnasio" required>
+        </label>
+        <label class="field">
+          <span>Es para</span>
+          <select id="category-type">
+            <option value="expense">Gastos</option>
+            <option value="income">Ingresos</option>
+          </select>
+        </label>
+        <div class="field">
+          <span>Icono</span>
+          <div class="emoji-grid" id="category-emoji-grid"></div>
+          <input type="hidden" id="category-icon">
+        </div>
+        <div class="modal-actions-row">
+          <button type="button" class="btn-danger hidden" id="btn-delete-category">Quitar</button>
+          <button type="button" class="btn-secondary" data-close-modal="modal-category">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= BIENVENIDA ================= -->
+  <div class="modal-overlay onboarding-overlay" id="modal-onboarding" role="dialog" aria-modal="true" aria-label="Bienvenida">
+    <div class="modal-sheet onboarding-sheet">
+      <div class="ob-top">
+        <div class="ob-dots" id="ob-dots"></div>
+        <button type="button" class="btn-link" id="ob-skip">Saltar</button>
+      </div>
+
+      <div class="ob-step" data-ob-step="welcome">
+        <div class="ob-hero" aria-hidden="true">👋</div>
+        <h2>Hola, vamos a ordenar tu plata</h2>
+        <ul class="ob-points">
+          <li><span aria-hidden="true">⚡</span> Anota un gasto en 3 toques.</li>
+          <li><span aria-hidden="true">📅</span> Mira cuánto te queda hasta tu próximo sueldo.</li>
+          <li><span aria-hidden="true">🔒</span> Todo se guarda en tu celular. Sin cuentas ni contraseñas.</li>
+        </ul>
+        <button type="button" class="btn-link" id="ob-restore">Ya tengo una copia de seguridad</button>
+      </div>
+
+      <div class="ob-step hidden" data-ob-step="money">
+        <div class="ob-hero" aria-hidden="true">💵</div>
+        <h2>¿Cuánto dinero tienes hoy?</h2>
+        <p class="ob-help">Un aproximado está bien. Lo puedes cambiar después en Cuentas.</p>
+        <label class="field">
+          <span>En efectivo (billetera)</span>
+          <input type="text" inputmode="decimal" id="ob-cash" placeholder="0.00" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>En el banco</span>
+          <input type="text" inputmode="decimal" id="ob-bank" placeholder="0.00" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="ob-step hidden" data-ob-step="salary">
+        <div class="ob-hero" aria-hidden="true">💼</div>
+        <h2>¿Recibes un sueldo fijo?</h2>
+        <p class="ob-help">Así la app te dice cuánto te queda hasta el próximo pago, y no solo hasta fin de mes.</p>
+        <label class="switch-row">
+          <span>Sí, me pagan cada mes</span>
+          <input type="checkbox" id="ob-has-salary" class="switch">
+        </label>
+        <div class="ob-salary hidden" id="ob-salary-fields">
+          <label class="field">
+            <span>¿Cuánto recibes?</span>
+            <input type="text" inputmode="decimal" id="ob-salary-amount" placeholder="0.00" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>¿Qué día te pagan?</span>
+            <select id="ob-salary-day"></select>
+          </label>
+        </div>
+      </div>
+
+      <div class="ob-step hidden" data-ob-step="budget">
+        <div class="ob-hero" aria-hidden="true">🎯</div>
+        <h2>¿Te pones un límite?</h2>
+        <p class="ob-help">Opcional. Es lo máximo que quieres gastar al mes. La app te avisa cuando te acercas.</p>
+        <label class="field">
+          <span>Límite de gasto al mes</span>
+          <input type="text" inputmode="decimal" id="ob-budget" placeholder="Sin límite" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="ob-step hidden" data-ob-step="install">
+        <div class="ob-hero" aria-hidden="true">📲</div>
+        <h2>Déjala en tu pantalla de inicio</h2>
+        <p class="ob-help">Así la abres con un toque, como WhatsApp, y funciona aunque no tengas internet.</p>
+        <button type="button" class="btn-primary btn-full btn-big" id="ob-install">Instalar ahora</button>
+        <p class="ob-help small">Si ahora no puedes, lo encuentras luego en Ajustes.</p>
+      </div>
+
+      <div class="ob-nav">
+        <button type="button" class="btn-secondary" id="ob-back">Atrás</button>
+        <button type="button" class="btn-primary" id="ob-next">Empezar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= GUIA DE INSTALACION ================= -->
+  <div class="modal-overlay" id="modal-install" role="dialog" aria-modal="true" aria-labelledby="install-guide-title">
+    <div class="modal-sheet compact-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Instalar</p>
+          <h2 id="install-guide-title">Ponla en tu pantalla de inicio</h2>
+        </div>
+      </div>
+      <button type="button" class="btn-primary btn-full btn-big hidden" id="btn-install-now">Instalar con un toque</button>
+      <div id="install-guide-body"></div>
+      <button class="btn-secondary btn-full" data-close-modal="modal-install">Entendido</button>
+    </div>
+  </div>
+
+  <!-- ================= ACCIONES ================= -->
+  <div class="modal-overlay" id="modal-actions" role="dialog" aria-modal="true" aria-label="Agregar">
     <div class="modal-sheet action-sheet">
       <div class="modal-handle"></div>
-      <h2>Agregar algo nuevo</h2>
+      <h2>¿Qué quieres anotar?</h2>
+      <div class="action-grid">
+        <button class="action-tile expense" id="action-quick-expense">
+          <span class="action-emoji" aria-hidden="true">💸</span>
+          <strong>Un gasto</strong>
+        </button>
+        <button class="action-tile income" id="action-quick-income">
+          <span class="action-emoji" aria-hidden="true">💵</span>
+          <strong>Un ingreso</strong>
+        </button>
+      </div>
       <div class="action-list">
         <button class="action-row" id="action-add-transaction">
-          <strong>Movimiento manual</strong>
-          <span>Gasto, ingreso, transferencia, compra o pago</span>
-        </button>
-        <button class="action-row" id="action-add-ai">
-          <strong>Borrador con IA</strong>
-          <span>Imagen, correo pegado o PDF con texto local</span>
-        </button>
-        <button class="action-row" id="action-reconcile">
-          <strong>Cuadrar estado de cuenta</strong>
-          <span>Sube el PDF del banco y compara con lo registrado</span>
-        </button>
-        <button class="action-row" id="action-ask">
-          <strong>Preguntar sobre mis finanzas</strong>
-          <span>Responde con totales del ciclo, sin enviar tus movimientos</span>
-        </button>
-        <button class="action-row" id="action-add-card">
-          <strong>Nueva tarjeta</strong>
-          <span>Banco, ultimos 4, corte y pago</span>
+          <span class="action-emoji" aria-hidden="true">🔁</span>
+          <span class="action-copy"><strong>Transferencia, pago de tarjeta o deuda</strong><span>Formulario completo con todas las opciones</span></span>
         </button>
         <button class="action-row" id="action-add-goal">
-          <strong>Nueva meta</strong>
-          <span>Ahorro con objetivo y progreso</span>
-        </button>
-        <button class="action-row" id="action-add-debt">
-          <strong>Nueva deuda</strong>
-          <span>Prestamo, cuota o saldo pendiente</span>
+          <span class="action-emoji" aria-hidden="true">🐷</span>
+          <span class="action-copy"><strong>Nueva meta de ahorro</strong><span>Ej: viaje, emergencia, celular nuevo</span></span>
         </button>
         <button class="action-row" id="action-add-recurring">
-          <strong>Movimiento recurrente</strong>
-          <span>Ingreso o gasto que cae cada mes</span>
+          <span class="action-emoji" aria-hidden="true">📆</span>
+          <span class="action-copy"><strong>Pago o ingreso fijo</strong><span>Alquiler, luz, internet, sueldo: se anota solo cada mes</span></span>
+        </button>
+        <button class="action-row" id="action-add-debt">
+          <span class="action-emoji" aria-hidden="true">🧾</span>
+          <span class="action-copy"><strong>Nueva deuda</strong><span>Préstamo o compra en cuotas fuera de la tarjeta</span></span>
+        </button>
+        <button class="action-row" id="action-add-card">
+          <span class="action-emoji" aria-hidden="true">💳</span>
+          <span class="action-copy"><strong>Nueva tarjeta de crédito</strong><span>Banco, últimos 4 números, día de corte y de pago</span></span>
         </button>
         <button class="action-row" id="action-add-account">
-          <strong>Nueva cuenta</strong>
-          <span>Efectivo, banco o ahorro</span>
+          <span class="action-emoji" aria-hidden="true">🏦</span>
+          <span class="action-copy"><strong>Nueva cuenta</strong><span>Efectivo, banco o ahorros</span></span>
+        </button>
+        <button class="action-row only-full" id="action-add-ai">
+          <span class="action-emoji" aria-hidden="true">✨</span>
+          <span class="action-copy"><strong>Borrador con IA</strong><span>Desde una foto, un correo pegado o un PDF</span></span>
+        </button>
+        <button class="action-row only-full" id="action-reconcile">
+          <span class="action-emoji" aria-hidden="true">📄</span>
+          <span class="action-copy"><strong>Cuadrar estado de cuenta</strong><span>Sube el PDF del banco y compara con lo registrado</span></span>
+        </button>
+        <button class="action-row only-full" id="action-ask">
+          <span class="action-emoji" aria-hidden="true">💬</span>
+          <span class="action-copy"><strong>Preguntar sobre mis finanzas</strong><span>Responde con totales del ciclo, sin enviar tus movimientos</span></span>
         </button>
       </div>
       <button class="btn-secondary btn-full" data-close-modal="modal-actions">Cerrar</button>
@@ -453,8 +706,8 @@
             <select id="tx-type" required>
               <option value="expense">Gasto</option>
               <option value="income">Ingreso</option>
-              <option value="transfer">Transferencia</option>
-              <option value="card_charge">Compra con tarjeta</option>
+              <option value="transfer">Transferencia entre mis cuentas</option>
+              <option value="card_charge">Compra con tarjeta de crédito</option>
               <option value="card_payment">Pago de tarjeta</option>
               <option value="debt_payment">Pago de deuda</option>
               <option value="goal_contribution">Aporte a meta</option>
@@ -468,18 +721,18 @@
 
         <div class="two-columns">
           <label class="field">
-            <span>Fecha real</span>
+            <span>Fecha</span>
             <input type="date" id="tx-date" required>
           </label>
           <label class="field" id="field-tx-category">
-            <span>Categoria</span>
+            <span>Categoría</span>
             <select id="tx-category"></select>
             <small class="field-hint category-hint hidden" id="tx-category-hint"></small>
           </label>
         </div>
 
         <label class="field">
-          <span>Descripcion</span>
+          <span>Descripción</span>
           <input type="text" id="tx-description" maxlength="80" placeholder="Ej: supermercado, sueldo, cuota, pago TC" required>
         </label>
 
@@ -489,7 +742,7 @@
             <select id="tx-from-account"></select>
           </label>
           <label class="field hidden" id="field-tx-to-amount">
-            <span>Cuanto llega a la cuenta destino</span>
+            <span>Cuánto llega a la cuenta destino</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="tx-to-amount" placeholder="0.00">
             <small class="field-hint" id="tx-to-amount-hint"></small>
           </label>
@@ -524,8 +777,8 @@
             <select id="tx-installment-count"></select>
           </label>
           <div class="field">
-            <span>Como se repartira</span>
-            <div class="helper-box compact-helper" id="tx-installment-preview">Elige una tarjeta para ver a que cierre ira la primera cuota.</div>
+            <span>Cómo se repartirá</span>
+            <div class="helper-box compact-helper" id="tx-installment-preview">Elige una tarjeta para ver a qué cierre irá la primera cuota.</div>
           </div>
         </div>
 
@@ -552,7 +805,7 @@
         </div>
       </div>
       <form id="ai-form" class="form-stack">
-        <p class="helper-box">Esta es la unica parte que sale a la nube. Todo lo demas sigue local en tu dispositivo. La IA nunca guarda nada sola: primero te abre un borrador revisable.</p>
+        <p class="helper-box">Esta es la única parte que sale a la nube. Todo lo demás sigue local en tu dispositivo. La IA nunca guarda nada sola: primero te abre un borrador revisable.</p>
         <label class="field">
           <span>Archivo</span>
           <input type="file" id="ai-file-input" accept="image/*,.pdf,.txt">
@@ -560,7 +813,7 @@
         </label>
         <label class="field">
           <span>Texto de correo</span>
-          <textarea id="ai-text-input" rows="6" placeholder="Pega aqui el texto de un correo, voucher o notificacion bancaria"></textarea>
+          <textarea id="ai-text-input" rows="6" placeholder="Pega aquí el texto de un correo, voucher o notificación bancaria"></textarea>
         </label>
         <div class="modal-actions-row">
           <button type="button" class="btn-secondary" data-close-modal="modal-ai">Cancelar</button>
@@ -575,12 +828,12 @@
       <div class="modal-handle"></div>
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Conciliacion</p>
+          <p class="eyebrow">Conciliación</p>
           <h2>Cuadrar estado de cuenta</h2>
         </div>
       </div>
       <form id="reconcile-form" class="form-stack">
-        <p class="helper-box">El PDF se abre y se lee en tu dispositivo. Solo el texto de los consumos sale a la IA para ordenarlo; tus saldos y cuentas no se envian.</p>
+        <p class="helper-box">El PDF se abre y se lee en tu dispositivo. Solo el texto de los consumos sale a la IA para ordenarlo; tus saldos y cuentas no se envían.</p>
         <label class="field">
           <span>Tarjeta</span>
           <select id="reconcile-card"></select>
@@ -617,13 +870,13 @@
         </div>
       </div>
       <form id="ask-form" class="form-stack">
-        <p class="helper-box">Se envian solo totales del ciclo (ingresos, gastos por categoria, deuda de tarjetas). Nunca la lista de tus movimientos.</p>
+        <p class="helper-box">Se envían solo totales del ciclo (ingresos, gastos por categoría, deuda de tarjetas). Nunca la lista de tus movimientos.</p>
         <label class="field">
           <span>Tu pregunta</span>
           <textarea id="ask-question" rows="3" placeholder="Ej: en que se me fue la plata este ciclo?"></textarea>
         </label>
         <details class="field">
-          <summary>Ver exactamente que se envia</summary>
+          <summary>Ver exactamente qué se envía</summary>
           <pre class="payload-preview" id="ask-payload"></pre>
         </details>
         <div class="modal-actions-row">
@@ -640,7 +893,7 @@
       <div class="modal-handle"></div>
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Patrimonio</p>
+          <p class="eyebrow">Cuentas</p>
           <h2 id="account-modal-title">Nueva cuenta</h2>
         </div>
       </div>
@@ -648,7 +901,7 @@
         <div class="two-columns">
           <label class="field">
             <span>Nombre</span>
-            <input type="text" id="account-name" maxlength="60" required>
+            <input type="text" id="account-name" maxlength="60" placeholder="Ej: BCP, Yape, Billetera" required>
           </label>
           <label class="field">
             <span>Tipo</span>
@@ -671,12 +924,12 @@
             <input type="number" step="0.01" inputmode="decimal" id="account-opening-balance" placeholder="0.00">
           </label>
           <label class="field checkbox-field">
-            <span>Contar en patrimonio</span>
+            <span>Contar en mi patrimonio</span>
             <input type="checkbox" id="account-include-networth" checked>
           </label>
         </div>
         <label class="field checkbox-field">
-          <span>Archivar cuenta</span>
+          <span>Archivar cuenta (ya no la uso)</span>
           <input type="checkbox" id="account-archived">
         </label>
         <div class="modal-actions-row">
@@ -701,41 +954,41 @@
         <div class="two-columns">
           <label class="field">
             <span>Banco</span>
-            <input type="text" id="card-bank-name" maxlength="60" required>
+            <input type="text" id="card-bank-name" maxlength="60" placeholder="Ej: BCP, Interbank" required>
           </label>
           <label class="field">
-            <span>Ultimos 4</span>
+            <span>Últimos 4 números</span>
             <input type="text" id="card-last4" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Dia de corte</span>
+            <span>Día de corte (cierre)</span>
             <input type="number" min="1" max="28" id="card-closing-day" value="10" required>
           </label>
           <label class="field">
-            <span>Dia de pago</span>
+            <span>Último día de pago</span>
             <input type="number" min="1" max="28" id="card-due-day" value="25" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Cuenta pagadora</span>
+            <span>¿Desde qué cuenta la pagas?</span>
             <select id="card-payment-account-id"></select>
           </label>
           <label class="field">
-            <span>Linea total</span>
+            <span>Línea de crédito total</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="card-credit-limit" value="0" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Deuda inicial de la tarjeta</span>
+            <span>¿Cuánto debes hoy en esta tarjeta?</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="card-opening-debt" value="0">
           </label>
           <div class="field">
-            <span>Aclaracion</span>
-            <div class="helper-box compact-helper">La deuda inicial es lo que ya debes al empezar. No pongas aqui la linea disponible.</div>
+            <span>Aclaración</span>
+            <div class="helper-box compact-helper">Es lo que ya debes al empezar. No pongas aquí la línea disponible.</div>
           </div>
         </div>
         <label class="field checkbox-field">
@@ -762,26 +1015,26 @@
       </div>
       <form id="goal-form" class="form-stack">
         <label class="field">
-          <span>Nombre</span>
-          <input type="text" id="goal-name" maxlength="80" required>
+          <span>¿Para qué ahorras?</span>
+          <input type="text" id="goal-name" maxlength="80" placeholder="Ej: viaje, fondo de emergencia" required>
         </label>
         <div class="two-columns">
           <label class="field">
-            <span>Objetivo</span>
+            <span>¿Cuánto necesitas?</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="goal-target-amount" required>
           </label>
           <label class="field">
-            <span>Ya ahorrado</span>
+            <span>Ya tengo ahorrado</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="goal-current-amount" value="0">
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Fecha objetivo</span>
+            <span>¿Para cuando?</span>
             <input type="date" id="goal-target-date">
           </label>
           <label class="field">
-            <span>Cuenta destino</span>
+            <span>¿En qué cuenta lo guardas?</span>
             <select id="goal-account-id"></select>
           </label>
         </div>
@@ -803,46 +1056,46 @@
       <div class="modal-handle"></div>
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Obligaciones</p>
+          <p class="eyebrow">Deudas</p>
           <h2 id="debt-modal-title">Nueva deuda</h2>
         </div>
       </div>
       <form id="debt-form" class="form-stack">
         <label class="field">
           <span>Nombre</span>
-          <input type="text" id="debt-name" maxlength="80" required>
+          <input type="text" id="debt-name" maxlength="80" placeholder="Ej: Préstamo Caja, deuda con mi hermano" required>
         </label>
         <div class="two-columns">
           <label class="field">
             <span>Tipo</span>
             <select id="debt-kind">
-              <option value="loan">Prestamo</option>
+              <option value="loan">Préstamo</option>
               <option value="installment">Cuotas</option>
               <option value="personal">Personal</option>
             </select>
           </label>
           <label class="field">
-            <span>Dia de pago</span>
+            <span>Día de pago</span>
             <input type="number" min="1" max="28" id="debt-due-day" value="1" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Total original</span>
+            <span>Total que pediste</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="debt-total-amount" required>
           </label>
           <label class="field">
-            <span>Saldo pendiente actual</span>
+            <span>Cuánto falta pagar hoy</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="debt-outstanding-amount" required>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Pago minimo</span>
+            <span>Cuota mensual</span>
             <input type="number" step="0.01" inputmode="decimal" min="0" id="debt-minimum-payment" value="0">
           </label>
           <label class="field">
-            <span>Cuenta relacionada</span>
+            <span>¿Desde qué cuenta pagas?</span>
             <select id="debt-account-id"></select>
           </label>
         </div>
@@ -852,7 +1105,7 @@
             <input type="number" min="0" id="debt-installment-count" value="0">
           </label>
           <label class="field">
-            <span>Cuotas pagadas</span>
+            <span>Cuotas ya pagadas</span>
             <input type="number" min="0" id="debt-installments-paid" value="0">
           </label>
         </div>
@@ -874,8 +1127,8 @@
       <div class="modal-handle"></div>
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Automatico</p>
-          <h2 id="recurring-modal-title">Nuevo recurrente</h2>
+          <p class="eyebrow">Todos los meses</p>
+          <h2 id="recurring-modal-title">Nuevo pago o ingreso fijo</h2>
         </div>
       </div>
       <form id="recurring-form" class="form-stack">
@@ -883,26 +1136,25 @@
           <label class="field">
             <span>Tipo</span>
             <select id="recurring-type">
-              <option value="expense">Gasto</option>
-              <option value="income">Ingreso</option>
+              <option value="expense">Pago fijo (gasto)</option>
+              <option value="income">Ingreso fijo</option>
             </select>
           </label>
           <label class="field">
-            <span>Dia del mes</span>
+            <span>Día del mes</span>
             <select id="recurring-day" required></select>
-            <small>En iPhone se abrira el selector nativo para elegir el numero.</small>
           </label>
         </div>
         <div class="two-columns">
           <label class="field">
-            <span>Fecha de inicio</span>
+            <span>Desde cuándo</span>
             <input type="date" id="recurring-start-date">
-            <small>Opcional. Si lo dejas vacio, empezara desde el ciclo actual o la siguiente ocurrencia.</small>
+            <small>Opcional. Si lo dejas vacío, empieza desde la próxima fecha.</small>
           </label>
           <label class="field">
-            <span id="recurring-end-month-label">Hasta que mes se paga</span>
+            <span id="recurring-end-month-label">Hasta qué mes</span>
             <input type="month" id="recurring-end-month">
-            <small>Opcional. Despues de ese mes ya no se generara.</small>
+            <small>Opcional. Despues de ese mes ya no se anota.</small>
           </label>
         </div>
         <div class="two-columns">
@@ -916,11 +1168,11 @@
           </label>
         </div>
         <label class="field">
-          <span>Descripcion</span>
-          <input type="text" id="recurring-description" maxlength="80" required>
+          <span>Descripción</span>
+          <input type="text" id="recurring-description" maxlength="80" placeholder="Ej: Alquiler, Luz, Netflix, Sueldo" required>
         </label>
         <label class="field" id="field-recurring-category">
-          <span>Categoria</span>
+          <span>Categoría</span>
           <select id="recurring-category-id"></select>
         </label>
         <label class="field checkbox-field">
@@ -933,77 +1185,76 @@
         </label>
         <div class="modal-actions-row">
           <button type="button" class="btn-secondary" data-close-modal="modal-recurring">Cancelar</button>
-          <button type="submit" class="btn-primary">Guardar recurrente</button>
+          <button type="submit" class="btn-primary">Guardar</button>
         </div>
       </form>
     </div>
   </div>
 
-  <div class="modal-overlay" id="modal-settings" role="dialog" aria-modal="true">
+  <!-- ================= AJUSTES ================= -->
+  <div class="modal-overlay" id="modal-settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="modal-sheet">
       <div class="modal-handle"></div>
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">Sistema local</p>
-          <h2>Ajustes</h2>
+          <p class="eyebrow">Tu app</p>
+          <h2 id="settings-title">Ajustes</h2>
         </div>
       </div>
       <div class="form-stack">
         <div class="settings-block">
-          <h3>Motor del ciclo</h3>
-          <label class="field">
-            <span>Sueldo principal</span>
-            <select id="settings-primary-salary"></select>
+          <p class="settings-block-title">Fácil de usar</p>
+          <label class="switch-row">
+            <span>
+              <strong>Modo sencillo</strong>
+              <small>Muestra solo lo esencial. Apágalo para ver ciclos, conciliación y gráficos avanzados.</small>
+            </span>
+            <input type="checkbox" class="switch" id="settings-simple-mode">
           </label>
-          <div class="two-columns">
-            <label class="field">
-              <span>Cuenta ahorro destino</span>
-              <select id="settings-savings-account"></select>
-            </label>
-            <label class="field">
-              <span>Cuenta desde donde barrer</span>
-              <select id="settings-sweep-source-account"></select>
-            </label>
-          </div>
-          <label class="field checkbox-field">
-            <span>Calcular sobrante para ahorro</span>
-            <input type="checkbox" id="settings-savings-sweep-enabled" checked>
-          </label>
-          <label class="field">
-            <span>Como se mueve el sobrante</span>
-            <select id="settings-sweep-mode">
-              <option value="suggest">Proponer y que yo lo confirme</option>
-              <option value="auto">Registrarlo automaticamente</option>
-            </select>
-            <small class="field-hint">En modo automatico la app crea la transferencia sola, aunque tu banco no la haya hecho.</small>
+          <label class="switch-row">
+            <span>
+              <strong>Letra grande</strong>
+              <small>Todo se ve más grande y fácil de leer.</small>
+            </span>
+            <input type="checkbox" class="switch" id="settings-large-text">
           </label>
           <div class="field">
-            <span>Cuentas liquidas que cuentan para el sobrante</span>
-            <div class="checkbox-grid" id="settings-liquid-accounts"></div>
+            <span>Colores</span>
+            <div class="segmented" role="group" aria-label="Tema">
+              <button type="button" data-theme-choice="light">Claro</button>
+              <button type="button" data-theme-choice="dark">Oscuro</button>
+              <button type="button" data-theme-choice="auto">Automático</button>
+            </div>
           </div>
-          <button class="btn-primary btn-full" id="btn-save-cycle-config">Guardar configuracion del ciclo</button>
-        </div>
-
-        <label class="field">
-          <span>Tope de gasto de referencia</span>
-          <input type="number" step="0.01" inputmode="decimal" min="0" id="settings-budget-input" placeholder="0.00">
-        </label>
-        <button class="btn-primary btn-full" id="btn-save-budget">Guardar tope</button>
-
-        <div class="settings-block">
-          <p class="settings-block-title">Topes por categoria</p>
-          <div class="category-budget-list" id="settings-category-budgets"></div>
-          <button class="btn-secondary btn-full" id="btn-save-category-budgets">Guardar topes por categoria</button>
+          <button class="btn-secondary btn-full" id="btn-settings-install"><span data-icon="phone" data-icon-size="18"></span> Instalar en mi pantalla de inicio</button>
         </div>
 
         <div class="settings-block">
-          <p class="settings-block-title">Tipo de cambio</p>
+          <p class="settings-block-title">Copia de seguridad</p>
+          <p class="soft-note" id="backup-status">Aún no guardaste una copia.</p>
+          <button class="btn-primary btn-full" id="btn-share-backup"><span data-icon="share" data-icon-size="18"></span> Guardar copia (Drive, WhatsApp, correo)</button>
+          <button class="btn-secondary btn-full" id="btn-restore-backup">Recuperar una copia</button>
+          <p class="soft-note">Tus datos viven solo en este celular. Si lo pierdes o borras los datos del navegador, la copia es la única forma de recuperarlos.</p>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-block-title">Límite de gasto al mes</p>
           <label class="field">
-            <span>Cuantos soles vale 1 dolar</span>
-            <input type="number" step="0.0001" inputmode="decimal" min="0" id="settings-usd-rate" placeholder="3.75">
-            <small class="field-hint">Se usa para consolidar tus cuentas en dolares dentro del patrimonio y los topes.</small>
+            <span>Lo máximo que quieres gastar</span>
+            <input type="number" step="0.01" inputmode="decimal" min="0" id="settings-budget-input" placeholder="Sin límite">
           </label>
-          <button class="btn-secondary btn-full" id="btn-save-exchange-rate">Guardar tipo de cambio</button>
+          <button class="btn-secondary btn-full" id="btn-save-budget">Guardar límite</button>
+          <details class="settings-details">
+            <summary>Límites por categoría</summary>
+            <div class="category-budget-list" id="settings-category-budgets"></div>
+            <button class="btn-secondary btn-full" id="btn-save-category-budgets">Guardar límites por categoría</button>
+          </details>
+        </div>
+
+        <div class="settings-block">
+          <p class="settings-block-title">Mis categorías</p>
+          <div class="category-pills" id="settings-category-list"></div>
+          <button class="btn-secondary btn-full" id="btn-add-category">Nueva categoría</button>
         </div>
 
         <div class="settings-block">
@@ -1013,59 +1264,104 @@
             <input type="checkbox" id="settings-notifications-enabled" checked>
           </label>
           <label class="field">
-            <span>Cuantos dias antes</span>
+            <span>Cuántos días antes</span>
             <input type="number" min="1" max="10" inputmode="numeric" id="settings-notify-days" value="3">
           </label>
           <p class="soft-note" id="notifications-status"></p>
-          <button class="btn-secondary btn-full" id="btn-enable-notifications">Activar avisos en este dispositivo</button>
+          <button class="btn-secondary btn-full" id="btn-enable-notifications">Activar avisos en este celular</button>
         </div>
 
-        <div class="settings-block">
-          <p class="settings-block-title">Clave de los estados de cuenta</p>
-          <label class="field">
-            <span>DNI o clave del PDF</span>
-            <input type="password" id="settings-statement-password" placeholder="Tu DNI">
-            <small class="field-hint">Se guarda solo en este navegador, igual que la API key, y nunca sale de tu dispositivo ni entra al backup.</small>
-          </label>
-          <div class="two-columns">
-            <button class="btn-secondary" id="btn-toggle-statement-password">Ver clave</button>
-            <button class="btn-secondary" id="btn-save-statement-password">Guardar clave</button>
+        <details class="settings-advanced">
+          <summary>Opciones avanzadas</summary>
+
+          <div class="settings-block">
+            <h3>Motor del ciclo</h3>
+            <label class="field">
+              <span>Sueldo principal</span>
+              <select id="settings-primary-salary"></select>
+            </label>
+            <div class="two-columns">
+              <label class="field">
+                <span>Cuenta ahorro destino</span>
+                <select id="settings-savings-account"></select>
+              </label>
+              <label class="field">
+                <span>Cuenta desde donde barrer</span>
+                <select id="settings-sweep-source-account"></select>
+              </label>
+            </div>
+            <label class="field checkbox-field">
+              <span>Calcular sobrante para ahorro</span>
+              <input type="checkbox" id="settings-savings-sweep-enabled" checked>
+            </label>
+            <label class="field">
+              <span>Cómo se mueve el sobrante</span>
+              <select id="settings-sweep-mode">
+                <option value="suggest">Proponer y que yo lo confirme</option>
+                <option value="auto">Registrarlo automáticamente</option>
+              </select>
+              <small class="field-hint">En modo automático la app crea la transferencia sola, aunque tu banco no la haya hecho.</small>
+            </label>
+            <div class="field">
+              <span>Cuentas liquidas que cuentan para el sobrante</span>
+              <div class="checkbox-grid" id="settings-liquid-accounts"></div>
+            </div>
+            <button class="btn-primary btn-full" id="btn-save-cycle-config">Guardar configuración del ciclo</button>
           </div>
-        </div>
 
-        <label class="field">
-          <span>API Key de OpenAI</span>
-          <input type="password" id="settings-api-key" placeholder="sk-...">
-          <small>Solo se usa cuando tu activas la IA. No se incluye en el backup JSON.</small>
-        </label>
-        <div class="split-actions">
-          <button class="btn-secondary" id="btn-toggle-api-key">Mostrar / ocultar</button>
-          <button class="btn-primary" id="btn-save-api-key">Guardar key</button>
-        </div>
-
-        <div class="theme-switcher">
-          <button class="btn-secondary" id="btn-theme-dark">Tema oscuro</button>
-          <button class="btn-secondary" id="btn-theme-light">Tema claro</button>
-        </div>
-
-        <div class="settings-block">
-          <h3>Respaldo local</h3>
-          <p id="backup-status">Aun no has exportado un backup completo.</p>
-          <div class="split-actions">
-            <button class="btn-secondary" id="btn-export-json">Exportar JSON</button>
-            <button class="btn-secondary" id="btn-import-json">Importar JSON</button>
+          <div class="settings-block">
+            <p class="settings-block-title">Tipo de cambio</p>
+            <label class="field">
+              <span>Cuántos soles vale 1 dólar</span>
+              <input type="number" step="0.0001" inputmode="decimal" min="0" id="settings-usd-rate" placeholder="3.75">
+              <small class="field-hint">Se usa para consolidar tus cuentas en dolares dentro del patrimonio y los topes.</small>
+            </label>
+            <button class="btn-secondary btn-full" id="btn-save-exchange-rate">Guardar tipo de cambio</button>
           </div>
-          <div class="split-actions">
-            <button class="btn-secondary" id="btn-export-csv">Exportar CSV</button>
-            <button class="btn-danger" id="btn-clear-data">Borrar todo</button>
-          </div>
-          <input type="file" id="backup-file-input" class="hidden" accept="application/json,.json">
-        </div>
 
-        <div class="settings-block">
-          <h3>Estado local</h3>
-          <p id="storage-status">Revisando almacenamiento persistente...</p>
-        </div>
+          <div class="settings-block">
+            <p class="settings-block-title">Clave de los estados de cuenta</p>
+            <label class="field">
+              <span>DNI o clave del PDF</span>
+              <input type="password" id="settings-statement-password" placeholder="Tu DNI">
+              <small class="field-hint">Se guarda solo en este navegador, igual que la API key, y nunca sale de tu dispositivo ni entra al backup.</small>
+            </label>
+            <div class="two-columns">
+              <button class="btn-secondary" id="btn-toggle-statement-password">Ver clave</button>
+              <button class="btn-secondary" id="btn-save-statement-password">Guardar clave</button>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <p class="settings-block-title">Inteligencia artificial (opcional)</p>
+            <label class="field">
+              <span>API Key de OpenAI</span>
+              <input type="password" id="settings-api-key" placeholder="sk-...">
+              <small>Solo se usa cuando tu activas la IA. No se incluye en el backup.</small>
+            </label>
+            <div class="split-actions">
+              <button class="btn-secondary" id="btn-toggle-api-key">Mostrar / ocultar</button>
+              <button class="btn-primary" id="btn-save-api-key">Guardar key</button>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <h3>Archivos</h3>
+            <div class="split-actions">
+              <button class="btn-secondary" id="btn-export-json">Descargar copia (JSON)</button>
+              <button class="btn-secondary" id="btn-import-json">Importar JSON</button>
+            </div>
+            <button class="btn-secondary btn-full" id="btn-export-csv">Exportar a Excel (CSV)</button>
+            <input type="file" id="backup-file-input" class="hidden" accept="application/json,.json,text/plain,.txt">
+          </div>
+
+          <div class="settings-block">
+            <h3>Estado local</h3>
+            <p id="storage-status">Revisando almacenamiento persistente...</p>
+            <button class="btn-secondary btn-full" id="btn-restart-onboarding">Ver la bienvenida otra vez</button>
+            <button class="btn-danger btn-full" id="btn-clear-data">Borrar todo</button>
+          </div>
+        </details>
 
         <button class="btn-secondary btn-full" data-close-modal="modal-settings">Cerrar</button>
       </div>
@@ -1117,8 +1413,8 @@
 
   <div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
 
-  <script src="db.js?v=4.0.0"></script>
-  <script src="ai.js?v=4.0.0"></script>
-  <script type="module" src="js/main.js?v=4.0.0"></script>
+  <script src="db.js?v=5.0.0"></script>
+  <script src="ai.js?v=5.0.0"></script>
+  <script type="module" src="js/main.js?v=5.0.0"></script>
 </body>
 </html>

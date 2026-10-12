@@ -39,28 +39,64 @@ export function renderEmptyPanel(title, text) {
 
 export let previouslyFocusedElement = null;
 
+// Modales abiertos, el ultimo arriba. Con una sola entrada de historial para
+// todos, el boton "atras" de Android cierra el modal en vez de salir de la app.
+const openStack = [];
+let ignoredPops = 0;
+
 export function openModal(id) {
   const modal = document.getElementById(id);
   if (!modal) return;
+  if (!modal.classList.contains('active')) {
+    if (!openStack.length) history.pushState({ modalGuard: true }, '');
+    openStack.push(id);
+    modal.style.zIndex = String(120 + openStack.length);
+  }
   previouslyFocusedElement = document.activeElement;
   modal.classList.add('active');
   document.body.style.overflow = 'hidden';
   const firstFocusable = modal.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
   if (firstFocusable) {
-    requestAnimationFrame(() => firstFocusable.focus());
+    requestAnimationFrame(() => firstFocusable.focus({ preventScroll: true }));
   }
 }
 
-export function closeModal(id) {
+export function closeModal(id, { fromHistory = false } = {}) {
   const modal = document.getElementById(id);
-  if (!modal) return;
+  if (!modal || !modal.classList.contains('active')) return;
   modal.classList.remove('active');
-  document.body.style.overflow = '';
+  const index = openStack.lastIndexOf(id);
+  if (index >= 0) openStack.splice(index, 1);
+  if (!openStack.length) {
+    document.body.style.overflow = '';
+    if (!fromHistory && history.state?.modalGuard) {
+      ignoredPops += 1;
+      history.back();
+    }
+  }
   if (previouslyFocusedElement && typeof previouslyFocusedElement.focus === 'function') {
-    previouslyFocusedElement.focus();
+    previouslyFocusedElement.focus({ preventScroll: true });
     previouslyFocusedElement = null;
   }
 }
+
+window.addEventListener('popstate', () => {
+  if (ignoredPops > 0) {
+    ignoredPops -= 1;
+    return;
+  }
+  const top = openStack[openStack.length - 1];
+  if (!top) return;
+  closeModal(top, { fromHistory: true });
+  // Quedan modales debajo: se repone la entrada para que "atras" siga cerrando.
+  if (openStack.length) history.pushState({ modalGuard: true }, '');
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const top = openStack[openStack.length - 1];
+  if (top) closeModal(top);
+});
 
 export function openConfirm({ title, text, onAccept }) {
   $('#confirm-title').textContent = title;
@@ -69,17 +105,43 @@ export function openConfirm({ title, text, onAccept }) {
   openModal('modal-confirm');
 }
 
-export function showToast(message, kind = 'success') {
+export function showToast(message, kind = 'success', { actionLabel = '', onAction = null, duration = 0 } = {}) {
   const container = $('#toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${kind}`;
-  toast.textContent = message;
-  container.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add('visible'));
-  setTimeout(() => {
+  const text = document.createElement('span');
+  text.textContent = message;
+  toast.appendChild(text);
+
+  const dismiss = () => {
     toast.classList.remove('visible');
     setTimeout(() => toast.remove(), 220);
-  }, 2600);
+  };
+
+  if (actionLabel && typeof onAction === 'function') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'toast-action';
+    button.textContent = actionLabel;
+    button.addEventListener('click', () => {
+      dismiss();
+      onAction();
+    }, { once: true });
+    toast.appendChild(button);
+  }
+
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('visible'));
+  setTimeout(dismiss, duration || (actionLabel ? 6000 : 2600));
+}
+
+/** Vibracion corta de confirmacion (solo Android la soporta; en el resto no hace nada). */
+export function haptic(pattern = 12) {
+  try {
+    navigator.vibrate?.(pattern);
+  } catch (error) {
+    // sin vibracion no pasa nada
+  }
 }
 
 export function bindSwipeToDismiss() {

@@ -2,25 +2,96 @@
   "id": "./?app=finanzas-locales",
   "name": "Finanzas Locales",
   "short_name": "Finanzas",
-  "description": "Control financiero local para GitHub Pages e iPhone, con IA opcional para generar borradores.",
+  "description": "Anota tus gastos en segundos y mira cuanto te queda hasta tu proximo sueldo. Tus datos se quedan en tu celular, sin cuentas ni contrasenas.",
+  "lang": "es-PE",
+  "dir": "ltr",
   "start_url": "./?source=pwa",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#0B0B12",
+  "theme_color": "#0B0B12",
+  "categories": ["finance", "productivity", "utilities"],
   "icons": [
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Anotar gasto",
+      "short_name": "Gasto",
+      "description": "Abre directo para anotar un gasto",
+      "url": "./?source=shortcut&action=gasto",
+      "icons": [{ "src": "icons/shortcut-gasto.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Anotar ingreso",
+      "short_name": "Ingreso",
+      "description": "Abre directo para anotar un ingreso",
+      "url": "./?source=shortcut&action=ingreso",
+      "icons": [{ "src": "icons/shortcut-ingreso.png", "sizes": "96x96", "type": "image/png" }]
+    },
+    {
+      "name": "Ver movimientos",
+      "short_name": "Movimientos",
+      "description": "Lista de todo lo que anotaste",
+      "url": "./?source=shortcut&action=movimientos",
+      "icons": [{ "src": "icons/shortcut-movimientos.png", "sizes": "96x96", "type": "image/png" }]
+    }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "share_title",
+      "text": "share_text",
+      "url": "share_url"
+    }
+  },
+  "screenshots": [
+    {
+      "src": "icons/screenshot-inicio.png",
+      "sizes": "1080x2160",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Cuanto te queda hasta tu proximo sueldo"
+    },
+    {
+      "src": "icons/screenshot-anotar.png",
+      "sizes": "1080x2160",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Anota un gasto en tres toques"
+    },
+    {
+      "src": "icons/screenshot-movimientos.png",
+      "sizes": "1080x2160",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Todos tus movimientos por dia"
     }
   ]
 }

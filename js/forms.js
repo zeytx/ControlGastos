@@ -9,8 +9,19 @@ import { applyTheme } from './theme.js';
 export async function saveTheme(theme) {
   await FinanceDB.saveSettings({ theme });
   applyTheme(theme);
-  showToast(`Tema ${theme === 'light' ? 'claro' : 'oscuro'} activo`, 'success');
+  const names = { light: 'claro', dark: 'oscuro', auto: 'automático (igual que tu celular)' };
+  showToast(`Tema ${names[theme] || 'oscuro'} activo`, 'success');
   await refreshData();
+}
+
+export async function saveUiPreference(patch, message) {
+  try {
+    await FinanceDB.saveSettings(patch);
+    await refreshData();
+    if (message) showToast(message, 'success');
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
 }
 
 export function resolveAccountIdFromHint(hint) {
@@ -303,7 +314,7 @@ export async function handleSaveCycleConfig(event) {
       savingsSweepMode: $('#settings-sweep-mode').value
     });
     await refreshData();
-    showToast('Configuracion del ciclo guardada', 'success');
+    showToast('Configuración del ciclo guardada', 'success');
   } catch (error) {
     showToast(error.message, 'error');
   }
@@ -322,6 +333,49 @@ export async function handleExportJson() {
     await FinanceDB.saveSettings({ lastBackupAt: new Date().toISOString() });
     await refreshData();
     showToast('Backup JSON exportado', 'success');
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+/**
+ * Copia de seguridad "para humanos": abre el menu Compartir del celular para
+ * mandarla a Drive, WhatsApp o el correo. Si el navegador no puede, se descarga.
+ */
+export async function handleShareBackup() {
+  try {
+    const payload = JSON.stringify(await FinanceDB.exportBackup());
+    const stamp = FinanceDB.getToday();
+    // Chrome no deja compartir .json; el mismo contenido como .txt si pasa y se importa igual.
+    const candidates = [
+      new File([payload], `finanzas-copia-${stamp}.json`, { type: 'application/json' }),
+      new File([payload], `finanzas-copia-${stamp}.txt`, { type: 'text/plain' })
+    ];
+    const shareable = candidates.find((file) => navigator.canShare?.({ files: [file] }));
+
+    if (shareable) {
+      try {
+        await navigator.share({
+          files: [shareable],
+          title: 'Copia de mis finanzas',
+          text: 'Copia de seguridad de Finanzas Locales. Para recuperarla: Ajustes > Recuperar copia.'
+        });
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        throw error;
+      }
+    } else {
+      const url = URL.createObjectURL(candidates[0]);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = candidates[0].name;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    await FinanceDB.saveSettings({ lastBackupAt: new Date().toISOString() });
+    await refreshData();
+    showToast('Copia guardada. Guárdala en un lugar seguro.', 'success');
   } catch (error) {
     showToast(error.message, 'error');
   }
@@ -421,7 +475,7 @@ export async function handleSaveCategoryBudgets() {
     });
     await FinanceDB.saveSettings({ categoryBudgets });
     await refreshData();
-    showToast('Topes por categoria guardados', 'success');
+    showToast('Topes por categoría guardados', 'success');
   } catch (error) {
     showToast(error.message, 'error');
   }

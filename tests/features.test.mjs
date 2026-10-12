@@ -249,3 +249,48 @@ test('el historial de patrimonio devuelve un punto por ciclo ya empezado', () =>
   assert.equal(history[0].net, 1000);
   assert.equal(history[1].net, 2000, 'el patrimonio acumula');
 });
+
+/* ===== v5: categorias con icono y ajustes de interfaz ===== */
+
+test('las categorias de fabrica completan su icono aunque vengan de un backup viejo', () => {
+  const food = internals.normalizeCategory({ id: 'food', name: 'Comida', type: 'expense' });
+  assert.equal(food.icon, '🍔');
+  assert.equal(food.archived, false);
+  assert.equal(food.system, false);
+});
+
+test('una categoria propia conserva el icono que eligio la persona', () => {
+  const pet = internals.normalizeCategory({ name: 'Mascota', type: 'expense', icon: '🐶' });
+  assert.equal(pet.icon, '🐶');
+  assert.equal(pet.name, 'Mascota');
+  assert.match(pet.id, /^cat/);
+});
+
+test('pagos de deuda y aportes quedan marcados como categorias de sistema', () => {
+  assert.equal(internals.normalizeCategory({ id: 'debt-payment', name: 'Pago de deuda' }).system, true);
+  assert.equal(internals.normalizeCategory({ id: 'goal-contribution', name: 'Aporte a meta' }).system, true);
+});
+
+test('los nombres de fabrica viejos se actualizan, los renombrados no', () => {
+  assert.equal(internals.normalizeCategory({ id: 'entertainment', name: 'Entretenimiento' }).name, 'Diversión');
+  assert.equal(internals.normalizeCategory({ id: 'education', name: 'Educacion' }).name, 'Educación');
+  assert.equal(internals.normalizeCategory({ id: 'entertainment', name: 'Salidas' }).name, 'Salidas');
+});
+
+test('los ajustes de interfaz se validan y tienen valores por defecto seguros', () => {
+  const defaults = internals.normalizeSettings({});
+  assert.equal(defaults.uiMode, '', 'sin preferencia, la interfaz decide');
+  assert.equal(defaults.textSize, 'normal');
+  assert.equal(defaults.onboardingDone, false);
+
+  const custom = internals.normalizeSettings({ uiMode: 'simple', textSize: 'large', theme: 'auto', onboardingDone: 1 });
+  assert.equal(custom.uiMode, 'simple');
+  assert.equal(custom.textSize, 'large');
+  assert.equal(custom.theme, 'auto');
+  assert.equal(custom.onboardingDone, true);
+
+  const invalid = internals.normalizeSettings({ uiMode: 'experto', textSize: 'gigante', theme: 'rosa' });
+  assert.equal(invalid.uiMode, '');
+  assert.equal(invalid.textSize, 'normal');
+  assert.equal(invalid.theme, 'dark');
+});

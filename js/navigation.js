@@ -2,11 +2,11 @@
 import { $, $$ } from './dom.js';
 
 export const TABS = [
-  { id: 'inicio', label: 'Inicio', icon: '◉', hint: 'Tu ciclo de un vistazo' },
-  { id: 'movimientos', label: 'Movs', icon: '≡', hint: 'Movimientos del ciclo' },
-  { id: 'tarjetas', label: 'Tarjetas', icon: '▤', hint: 'Corte y pago' },
-  { id: 'cuentas', label: 'Cuentas', icon: '$', hint: 'Patrimonio y saldos' },
-  { id: 'plan', label: 'Plan', icon: '◆', hint: 'Metas, deudas y recurrentes' }
+  { id: 'inicio', label: 'Inicio', hint: 'Tu resumen' },
+  { id: 'movimientos', label: 'Movimientos', hint: 'Lo que anotaste' },
+  { id: 'tarjetas', label: 'Tarjetas', hint: 'Corte y pago' },
+  { id: 'cuentas', label: 'Cuentas', hint: 'Tu dinero' },
+  { id: 'plan', label: 'Plan', hint: 'Metas y pagos fijos' }
 ];
 
 const STORAGE_KEY = 'active-tab';

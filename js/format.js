@@ -1,10 +1,32 @@
 /* Formateo de montos, fechas y etiquetas legibles. */
 import { MONTH_NAMES, SHORT_MONTH_NAMES } from './constants.js';
-import { $ } from './dom.js';
+import { getCategoryEmoji } from './icons.js';
 import { getAccountMap, getCardMap, getCategoryMap, getSnapshot } from './state.js';
 
+const amountFormatter = new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export function formatCurrency(value) {
-  return `S/ ${FinanceDB.roundAmount(value).toFixed(2)}`;
+  const amount = FinanceDB.roundAmount(value);
+  return `${amount < 0 ? '-' : ''}S/ ${amountFormatter.format(Math.abs(amount))}`;
+}
+
+const WEEKDAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
+
+/** "Hoy", "Ayer" o "Lunes 6 Oct": como se lee una fecha en una lista. */
+export function formatRelativeDay(value) {
+  const date = FinanceDB.normalizeDate(value);
+  const today = FinanceDB.getToday();
+  if (date === today) return 'Hoy';
+  if (date === FinanceDB.addDays(today, -1)) return 'Ayer';
+  if (date === FinanceDB.addDays(today, 1)) return 'Manana';
+  const [year, month, day] = date.split('-').map((part) => parseInt(part, 10));
+  const weekday = WEEKDAY_NAMES[new Date(year, month - 1, day, 12).getDay()];
+  const sameYear = date.slice(0, 4) === today.slice(0, 4);
+  return `${weekday} ${day} ${SHORT_MONTH_NAMES[month - 1]}${sameYear ? '' : ` ${year}`}`;
+}
+
+export function getCategoryIcon(categoryId, transactionType = 'expense') {
+  return getCategoryEmoji(getCategoryMap().get(categoryId), transactionType);
 }
 
 export function formatDate(value) {

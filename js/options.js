@@ -85,7 +85,7 @@ export function populateFilterOptions() {
   fillSelect(
     $('#filter-category'),
     [{ value: 'all', label: 'Todas' }].concat(
-      getSnapshot().categories.map((category) => ({ value: category.id, label: category.name }))
+      getSnapshot().categories.map((category) => ({ value: category.id, label: `${category.icon ? `${category.icon} ` : ''}${category.name}` }))
     ),
     state.filters.categoryId
   );
@@ -158,7 +158,7 @@ export function populateRecurringAccountOptions() {
 export function populateRecurringDayOptions(selectedDay = '1') {
   const options = Array.from({ length: 28 }, (_, index) => {
     const day = String(index + 1);
-    return { value: day, label: `Dia ${day}` };
+    return { value: day, label: `Día ${day}` };
   });
   fillSelect($('#recurring-day'), options, String(selectedDay || '1'));
 }
@@ -183,7 +183,7 @@ export function populateSettingsOptions() {
     [{ value: '', label: 'Selecciona un recurrente' }].concat(
       getSnapshot().recurring
         .filter((item) => item.type === 'income')
-        .map((item) => ({ value: item.id, label: `${item.description} / dia ${item.dayOfMonth}` }))
+        .map((item) => ({ value: item.id, label: `${item.description} / día ${item.dayOfMonth}` }))
     ),
     getSnapshot().settings.financialCycleConfig.primarySalaryRecurringId
   );
@@ -210,13 +210,15 @@ export function renderCategoryBudgetInputs() {
   if (!container) return;
 
   const budgets = getSnapshot().settings.categoryBudgets || {};
-  const categories = getSnapshot().categories.filter((item) => item.type === 'expense');
+  const categories = getSnapshot().categories.filter(
+    (item) => item.type === 'expense' && (!item.archived || budgets[item.id])
+  );
 
   container.innerHTML = categories
     .map(
       (category) => `
         <label class="category-budget-row">
-          <span>${escapeHtml(category.name)}</span>
+          <span>${escapeHtml(category.icon || '')} ${escapeHtml(category.name)}</span>
           <input type="number" step="0.01" inputmode="decimal" min="0"
                  data-category-budget="${escapeHtml(category.id)}"
                  value="${budgets[category.id] ? escapeHtml(budgets[category.id]) : ''}"
@@ -281,7 +283,7 @@ export function applyCategorySuggestion({ force = false } = {}) {
   }
 
   if (hint) {
-    hint.textContent = `Categoria sugerida por tus movimientos anteriores: ${getCategoryLabel(suggestion.categoryId)}`;
+    hint.textContent = `Categoría sugerida por tus movimientos anteriores: ${getCategoryLabel(suggestion.categoryId)}`;
     hint.classList.remove('hidden');
   }
 }
@@ -293,17 +295,30 @@ export function updateTransactionCategoryOptions() {
   if (type === 'expense' || type === 'income' || type === 'card_charge') {
     const desiredType = type === 'income' ? 'income' : 'expense';
     options = getSnapshot().categories
-      .filter((item) => item.type === desiredType)
-      .map((item) => ({ value: item.id, label: item.name }));
+      .filter((item) => item.type === desiredType && ((!item.system && !item.archived) || item.id === $('#tx-category').value))
+      .map((item) => ({ value: item.id, label: `${item.icon ? `${item.icon} ` : ''}${item.name}` }));
   } else if (type === 'debt_payment' || type === 'card_payment') {
     options = [{ value: 'debt-payment', label: 'Pago de deuda' }];
   } else if (type === 'goal_contribution') {
     options = [{ value: 'goal-contribution', label: 'Aporte a meta' }];
   } else {
-    options = [{ value: '', label: 'Sin categoria' }];
+    options = [{ value: '', label: 'Sin categoría' }];
   }
 
   fillSelect($('#tx-category'), options, $('#tx-category').value || options[0]?.value || '');
+}
+
+/** Al editar, la categoria guardada puede estar oculta (archivada o de sistema): se agrega igual. */
+export function ensureCategoryOption(categoryId) {
+  const select = $('#tx-category');
+  if (!categoryId || select.value === categoryId) return;
+  const category = getSnapshot().categories.find((item) => item.id === categoryId);
+  if (!category) return;
+  const option = document.createElement('option');
+  option.value = category.id;
+  option.textContent = `${category.icon ? `${category.icon} ` : ''}${category.name}`;
+  select.appendChild(option);
+  select.value = category.id;
 }
 
 export function updateCardStatementOptions() {
@@ -312,7 +327,7 @@ export function updateCardStatementOptions() {
     ? getOpenStatementsForCard(cardId)
         .sort((a, b) => FinanceDB.compareDate(a.dueDate || '9999-12-31', b.dueDate || '9999-12-31'))
     : [];
-  const options = [{ value: '', label: 'Aplicar al saldo pendiente mas antiguo' }].concat(
+  const options = [{ value: '', label: 'Aplicar al saldo pendiente más antiguo' }].concat(
     openStatements.map((statement) => ({
       value: statement.statementCycleKey,
       label: `${formatStatementLabel(statement)} / ${formatCurrency(statement.pendingAmount)}`
@@ -346,7 +361,7 @@ export function updateInstallmentPreview() {
   const amount = parseFloat($('#tx-amount').value || '0') || 0;
   const installmentCount = Math.max(1, parseInt($('#tx-installment-count').value || '1', 10) || 1);
   if (!card) {
-    preview.textContent = 'Elige una tarjeta para calcular el primer cierre y el sueldo al que ira la compra.';
+    preview.textContent = 'Elige una tarjeta para calcular el primer cierre y el sueldo al que irá la compra.';
     return;
   }
 
@@ -456,7 +471,7 @@ export function updateRecurringFields() {
   }
 
   const desiredType = $('#recurring-type').value === 'income' ? 'income' : 'expense';
-  endMonthLabel.textContent = desiredType === 'income' ? 'Hasta que mes llega' : 'Hasta que mes se paga';
+  endMonthLabel.textContent = desiredType === 'income' ? 'Hasta qué mes llega' : 'Hasta qué mes se paga';
   const options = getSnapshot().categories
     .filter((item) => item.type === desiredType)
     .map((item) => ({ value: item.id, label: item.name }));

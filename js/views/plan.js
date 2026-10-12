@@ -8,7 +8,7 @@ export function renderGoals() {
   const container = $('#goals-grid');
   const goals = getSnapshot().goals;
   if (!goals.length) {
-    container.innerHTML = renderEmptyPanel('Sin metas aun', 'Define una meta de ahorro y luego registra aportes desde tus cuentas.');
+    container.innerHTML = renderEmptyPanel('Sin metas aún', 'Define una meta de ahorro y luego registra aportes desde tus cuentas.');
     return;
   }
 
@@ -46,7 +46,7 @@ export function renderDebts() {
   const container = $('#debts-grid');
   const debts = getSnapshot().debts;
   if (!debts.length) {
-    container.innerHTML = renderEmptyPanel('Sin deudas registradas', 'Si tienes prestamos o cuotas, registralos aqui para no olvidarlos.');
+    container.innerHTML = renderEmptyPanel('Sin deudas registradas', 'Si tienes préstamos o cuotas, regístralos aquí para no olvidarlos.');
     return;
   }
 
@@ -61,7 +61,7 @@ export function renderDebts() {
           <div class="panel-card-header">
             <div>
               <h4 class="panel-card-title">${escapeHtml(debt.name)}</h4>
-              <span class="panel-card-subtitle">${escapeHtml(DEBT_KIND_LABELS[debt.kind] || debt.kind)} / Pago dia ${escapeHtml(debt.dueDay)}</span>
+              <span class="panel-card-subtitle">${escapeHtml(DEBT_KIND_LABELS[debt.kind] || debt.kind)} / Pago día ${escapeHtml(debt.dueDay)}</span>
             </div>
             <span class="chip ${debt.archived ? 'warning' : debt.outstandingAmount > 0 ? 'danger' : 'positive'}">${debt.archived ? 'Archivada' : debt.outstandingAmount > 0 ? 'Pendiente' : 'Pagada'}</span>
           </div>
@@ -88,7 +88,7 @@ export function renderRecurring() {
   const container = $('#recurring-grid');
   const recurring = getSnapshot().recurring;
   if (!recurring.length) {
-    container.innerHTML = renderEmptyPanel('Nada automatico aun', 'Crea ingresos o gastos que deban caer solos cada mes.');
+    container.innerHTML = renderEmptyPanel('Nada automático aún', 'Crea ingresos o gastos que deban caer solos cada mes.');
     return;
   }
 
@@ -98,13 +98,13 @@ export function renderRecurring() {
         <div class="panel-card-header">
           <div>
             <h4 class="panel-card-title">${escapeHtml(item.description)}</h4>
-            <span class="panel-card-subtitle">${item.type === 'income' ? 'Ingreso' : 'Gasto'} / Dia ${escapeHtml(item.dayOfMonth)}</span>
+            <span class="panel-card-subtitle">${item.type === 'income' ? 'Ingreso' : 'Gasto'} / Día ${escapeHtml(item.dayOfMonth)}</span>
           </div>
           <span class="chip ${item.active ? 'positive' : 'warning'}">${item.active ? 'Activo' : 'Pausado'}</span>
         </div>
         <div class="balance-amount">${formatCurrency(item.amount)}</div>
         <div class="chips-row">
-          <span class="chip">${escapeHtml(getCategoryLabel(item.categoryId) || 'Sin categoria')}</span>
+          <span class="chip">${escapeHtml(getCategoryLabel(item.categoryId) || 'Sin categoría')}</span>
           <span class="chip">${escapeHtml(getAccountLabel(item.accountId) || 'Sin cuenta')}</span>
           ${item.startDate ? `<span class="chip">Empieza ${escapeHtml(formatShortDate(item.startDate))}</span>` : ''}
           ${item.endMonth ? `<span class="chip warning">Hasta ${escapeHtml(formatMonthLabel(item.endMonth))}</span>` : ''}
@@ -123,7 +123,7 @@ export function renderAgenda() {
   const container = $('#agenda-list');
   const items = getSnapshot().agenda || [];
   if (!items.length) {
-    container.innerHTML = renderEmptyPanel('Sin eventos cercanos', 'Cuando existan sueldos, cortes, pagos o recurrentes proximos apareceran aqui.');
+    container.innerHTML = renderEmptyPanel('Sin eventos cercanos', 'Cuando existan sueldos, cortes, pagos o recurrentes próximos aparecerán aquí.');
     return;
   }
 

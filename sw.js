@@ -5,7 +5,7 @@
    La IA nunca se cachea.
    ============================================ */
 
-const CACHE_NAME = 'finanzas-locales-v9';
+const CACHE_NAME = 'finanzas-locales-v10';
 
 // Sin ?v= a proposito: el matching ignora el query string, asi que una misma
 // entrada sirve tanto para "js/main.js?v=3.0.0" (pedido por el HTML) como para
@@ -19,6 +19,8 @@ const APP_SHELL = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-maskable-192.png',
+  './icons/apple-touch-icon.png',
   './js/main.js',
   './js/render.js',
   './js/state.js',
@@ -35,6 +37,11 @@ const APP_SHELL = [
   './js/notifications.js',
   './js/reconcile.js',
   './js/ask.js',
+  './js/icons.js',
+  './js/quickadd.js',
+  './js/install.js',
+  './js/onboarding.js',
+  './js/views/home.js',
   './js/views/hero.js',
   './js/views/dashboard.js',
   './js/views/accounts.js',
@@ -129,6 +136,18 @@ self.addEventListener('fetch', (event) => {
         return cached;
       }
       return revalidate(request).then((response) => response || caches.match('./index.html', MATCH_OPTIONS));
+    })
+  );
+});
+
+// Tocar un aviso (corte o vencimiento de tarjeta) abre la app, o la trae al frente.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((client) => client.url.startsWith(self.registration.scope));
+      if (existing) return existing.focus();
+      return self.clients.openWindow('./?source=notification#tarjetas');
     })
   );
 });

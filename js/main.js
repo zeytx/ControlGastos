@@ -1,15 +1,21 @@
 /* Arranque de la app y cableado de eventos. */
 import { $, $$, bindSwipeToDismiss, closeModal, openConfirm, openModal, showToast } from './dom.js';
 import { getCardLabel, isInstallmentGroupTransaction } from './format.js';
-import { handleSaveCategoryBudgets, handleSaveExchangeRate, handleSaveNotificationSettings, handleAISubmit, handleAccountSubmit, handleCardSubmit, handleDebtSubmit, handleExportCsv, handleExportJson, handleGoalSubmit, handleImportJson, handleRecurringSubmit, handleSaveCycleConfig, handleTransactionSubmit, saveTheme } from './forms.js';
-import { initNavigation } from './navigation.js';
+import { handleSaveCategoryBudgets, handleSaveExchangeRate, handleSaveNotificationSettings, handleAISubmit, handleAccountSubmit, handleCardSubmit, handleDebtSubmit, handleExportCsv, handleExportJson, handleGoalSubmit, handleImportJson, handleRecurringSubmit, handleSaveCycleConfig, handleShareBackup, handleTransactionSubmit, saveTheme, saveUiPreference } from './forms.js';
+import { hydrateIcons } from './icons.js';
+import { bindInstallEvents, handleLaunchParams, initInstall, onInstallAvailabilityChange, openInstallGuide, promptInstall } from './install.js';
+import { activateTab, initNavigation } from './navigation.js';
+import { bindOnboardingEvents, openOnboarding, shouldShowOnboarding } from './onboarding.js';
+import { bindQuickAddEvents, openQuickAdd, renderCategoryManager } from './quickadd.js';
+import { getThemePreference } from './theme.js';
 import { bindAskEvents, openAskModal } from './ask.js';
 import { bindReconcileEvents, getStoredStatementPassword, openReconcileModal, setStoredStatementPassword } from './reconcile.js';
 import { renderNotificationStatus, requestNotificationPermission, runCardDueCheck, sendTestNotification } from './notifications.js';
 import { openAIModal, openAccountModal, openCardModal, openCardStatementsModal, openDebtModal, openGoalModal, openRecurringModal, openTransactionModal, renderTransactionDetail } from './modals.js';
 import { applyCategorySuggestion, updateCurrencyFields, loadSettingsIntoInputs, populateSettingsOptions, setDefaultFormDates, updateCardStatementOptions, updateInstallmentPreview, updateRecurringFields, updateTransactionFields } from './options.js';
 import { refreshData, renderAll } from './render.js';
-import { getSelectedCycle, getSnapshot, getTransactionById, state } from './state.js';
+import { getSelectedCycle, getSnapshot, getTransactionById, isSimpleMode, state } from './state.js';
+import { renderHeader, renderInstallCard } from './views/hero.js';
 import { renderQuickFilters, renderTransactions } from './views/transactions.js';
 
 export function syncPlatformState() {
@@ -40,6 +46,8 @@ export async function requestPersistentStorage() {
 
 export async function init() {
   syncPlatformState();
+  hydrateIcons();
+  initInstall();
   initNavigation();
   bindEvents();
   setDefaultFormDates();
@@ -47,7 +55,34 @@ export async function init() {
   await requestPersistentStorage();
   await refreshData({ preserveSelectedCycle: false });
   registerServiceWorker();
+  if (shouldShowOnboarding()) {
+    openOnboarding();
+  } else {
+    handleLaunchParams();
+  }
   runCardDueCheck().catch(() => {});
+}
+
+/** Abre el dialogo nativo de instalacion si el navegador lo ofrece; si no, la guia paso a paso. */
+async function installOrGuide() {
+  if (state.platform.canInstall) {
+    await promptInstall();
+  } else {
+    openInstallGuide();
+  }
+}
+
+function syncSettingsControls() {
+  const settings = getSnapshot().settings;
+  $('#settings-simple-mode').checked = isSimpleMode();
+  $('#settings-large-text').checked = settings.textSize === 'large';
+  const theme = getThemePreference();
+  $$('[data-theme-choice]').forEach((button) => {
+    const active = button.dataset.themeChoice === theme;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  renderCategoryManager();
 }
 
 export function changeCycle(direction) {
@@ -184,6 +219,7 @@ export function handleRecurringGridClick(event) {
 }
 
 export function handleTransactionsListClick(event) {
+  if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
   const card = event.target.closest('[data-transaction-id]');
   if (!card) return;
   const transaction = getTransactionById(card.dataset.transactionId);
@@ -274,15 +310,63 @@ export function bindEvents() {
     });
   });
 
-  $('#fab-add').addEventListener('click', () => openModal('modal-actions'));
+  bindQuickAddEvents();
+  bindInstallEvents();
+  bindOnboardingEvents();
+  onInstallAvailabilityChange(() => {
+    renderInstallCard();
+    renderHeader();
+  });
+
+  // El boton flotante va directo a anotar un gasto: es lo que se hace 9 de cada 10 veces.
+  $('#fab-add').addEventListener('click', () => openQuickAdd({ type: 'expense' }));
   $('#btn-open-actions').addEventListener('click', () => openModal('modal-actions'));
+  $('#action-quick-expense').addEventListener('click', () => openQuickAdd({ type: 'expense' }));
+  $('#action-quick-income').addEventListener('click', () => openQuickAdd({ type: 'income' }));
+  $('#home-summary').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-quick]');
+    if (button) openQuickAdd({ type: button.dataset.quick });
+  });
+  $('#home-recent').addEventListener('click', handleTransactionsListClick);
+  $('#home-recent').addEventListener('keydown', handleTransactionsListClick);
+  $('#btn-home-see-all').addEventListener('click', () => activateTab('movimientos'));
+
+  $('#btn-header-install').addEventListener('click', installOrGuide);
+  $('#btn-install-card').addEventListener('click', installOrGuide);
+  $('#btn-settings-install').addEventListener('click', installOrGuide);
+
   $('#btn-open-settings').addEventListener('click', () => {
     loadSettingsIntoInputs();
     populateSettingsOptions();
     $('#settings-statement-password').value = getStoredStatementPassword();
     renderNotificationStatus();
+    syncSettingsControls();
     openModal('modal-settings');
   });
+
+  $('#settings-simple-mode').addEventListener('change', (event) => {
+    saveUiPreference(
+      { uiMode: event.target.checked ? 'simple' : 'full' },
+      event.target.checked ? 'Modo sencillo activado' : 'Modo completo: ves ciclos, conciliación y todo el detalle'
+    );
+  });
+  $('#settings-large-text').addEventListener('change', (event) => {
+    saveUiPreference({ textSize: event.target.checked ? 'large' : 'normal' });
+  });
+  $$('[data-theme-choice]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await saveTheme(button.dataset.themeChoice);
+      syncSettingsControls();
+    });
+  });
+  $('#btn-share-backup').addEventListener('click', handleShareBackup);
+  $('#btn-restore-backup').addEventListener('click', () => $('#backup-file-input').click());
+  $('#btn-restart-onboarding').addEventListener('click', () => {
+    closeModal('modal-settings');
+    openOnboarding();
+  });
+  $('#btn-movs-prev').addEventListener('click', () => changeCycle(1));
+  $('#btn-movs-next').addEventListener('click', () => changeCycle(-1));
   $('#btn-open-cycle-settings').addEventListener('click', () => {
     loadSettingsIntoInputs();
     populateSettingsOptions();
@@ -329,6 +413,7 @@ export function bindEvents() {
 
   $('#btn-add-account').addEventListener('click', () => openAccountModal());
   $('#btn-add-card').addEventListener('click', () => openCardModal());
+  $('#btn-add-card-callout').addEventListener('click', () => openCardModal());
   $('#btn-add-goal').addEventListener('click', () => openGoalModal());
   $('#btn-add-debt').addEventListener('click', () => openDebtModal());
   $('#btn-add-recurring').addEventListener('click', () => openRecurringModal());
@@ -416,6 +501,7 @@ export function bindEvents() {
   $('#debts-grid').addEventListener('click', handleDebtsGridClick);
   $('#recurring-grid').addEventListener('click', handleRecurringGridClick);
   $('#transactions-list').addEventListener('click', handleTransactionsListClick);
+  $('#transactions-list').addEventListener('keydown', handleTransactionsListClick);
 
   $('#btn-detail-edit').addEventListener('click', () => {
     const transaction = getTransactionById(state.ui.detailTransactionId);
@@ -490,8 +576,6 @@ export function bindEvents() {
     input.type = input.type === 'password' ? 'text' : 'password';
   });
 
-  $('#btn-theme-dark').addEventListener('click', async () => saveTheme('dark'));
-  $('#btn-theme-light').addEventListener('click', async () => saveTheme('light'));
 
   $('#btn-export-json').addEventListener('click', handleExportJson);
   $('#btn-import-json').addEventListener('click', () => $('#backup-file-input').click());
@@ -549,7 +633,14 @@ export function registerServiceWorker() {
           // Solo avisamos si ya habia una version corriendo: en la primera
           // instalacion no hay nada que actualizar.
           if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-            showToast('Hay una version nueva. Cierra y vuelve a abrir la app.', 'success');
+            showToast('Hay una versión nueva lista', 'info', {
+              actionLabel: 'Actualizar',
+              duration: 15000,
+              onAction: () => {
+                installing.postMessage('skip-waiting');
+                window.location.reload();
+              }
+            });
           }
         });
       });

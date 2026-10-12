@@ -39,21 +39,31 @@ const FinanceDB = (() => {
   const CARD_SOURCE_TYPES = new Set(['manual', 'legacy', 'recurring', 'system', 'statement-import']);
 
   const DEFAULT_CATEGORIES = [
-    { id: 'salary', name: 'Sueldo', type: 'income' },
-    { id: 'freelance', name: 'Ingreso extra', type: 'income' },
-    { id: 'food', name: 'Comida', type: 'expense' },
-    { id: 'transport', name: 'Transporte', type: 'expense' },
-    { id: 'home', name: 'Casa', type: 'expense' },
-    { id: 'health', name: 'Salud', type: 'expense' },
-    { id: 'shopping', name: 'Compras', type: 'expense' },
-    { id: 'services', name: 'Servicios', type: 'expense' },
-    { id: 'entertainment', name: 'Entretenimiento', type: 'expense' },
-    { id: 'education', name: 'Educacion', type: 'expense' },
-    { id: 'debt-payment', name: 'Pago de deuda', type: 'expense' },
-    { id: 'goal-contribution', name: 'Aporte a meta', type: 'expense' },
-    { id: 'other-expense', name: 'Otros gastos', type: 'expense' },
-    { id: 'other-income', name: 'Otros ingresos', type: 'income' }
+    { id: 'salary', name: 'Sueldo', type: 'income', icon: '💼' },
+    { id: 'freelance', name: 'Ingreso extra', type: 'income', icon: '💰' },
+    { id: 'food', name: 'Comida', type: 'expense', icon: '🍔' },
+    { id: 'transport', name: 'Transporte', type: 'expense', icon: '🚌' },
+    { id: 'home', name: 'Casa', type: 'expense', icon: '🏠' },
+    { id: 'health', name: 'Salud', type: 'expense', icon: '💊' },
+    { id: 'shopping', name: 'Compras', type: 'expense', icon: '🛍️' },
+    { id: 'services', name: 'Servicios', type: 'expense', icon: '💡' },
+    { id: 'entertainment', name: 'Diversión', type: 'expense', icon: '🎬' },
+    { id: 'education', name: 'Educación', type: 'expense', icon: '📚' },
+    { id: 'debt-payment', name: 'Pago de deuda', type: 'expense', icon: '🧾' },
+    { id: 'goal-contribution', name: 'Aporte a meta', type: 'expense', icon: '🐷' },
+    { id: 'other-expense', name: 'Otros gastos', type: 'expense', icon: '📦' },
+    { id: 'other-income', name: 'Otros ingresos', type: 'income', icon: '➕' }
   ];
+
+  // Categorias que la app asigna sola (pagos de deuda, aportes): no se eligen a mano.
+  const SYSTEM_CATEGORY_IDS = new Set(['debt-payment', 'goal-contribution']);
+  const DEFAULT_CATEGORY_ICONS = new Map(DEFAULT_CATEGORIES.map((item) => [item.id, item.icon]));
+  // Nombres de fabrica que cambiaron: antes no se podian renombrar, asi que si
+  // siguen igual es seguro actualizarlos.
+  const LEGACY_CATEGORY_NAMES = new Map([
+    ['entertainment|Entretenimiento', 'Diversión'],
+    ['education|Educacion', 'Educación']
+  ]);
 
   const DEFAULT_ACCOUNTS = [
     {
@@ -91,6 +101,10 @@ const FinanceDB = (() => {
     notifications: { cardDueEnabled: true, daysBefore: 3, lastNotifiedKey: '' },
     installPromptDismissedAt: '',
     lastBackupAt: '',
+    // '' = la interfaz decide (sencillo si aun no hay datos), 'simple' o 'full'.
+    uiMode: '',
+    textSize: 'normal',
+    onboardingDone: false,
     financialCycleConfig: {
       primarySalaryRecurringId: '',
       savingsAccountId: 'savings-main',
@@ -387,6 +401,10 @@ const FinanceDB = (() => {
     };
     merged.id = SETTINGS_KEY;
     merged.monthlyBudget = roundAmount(merged.monthlyBudget);
+    merged.theme = ['dark', 'light', 'auto'].includes(merged.theme) ? merged.theme : 'dark';
+    merged.uiMode = ['simple', 'full'].includes(merged.uiMode) ? merged.uiMode : '';
+    merged.textSize = merged.textSize === 'large' ? 'large' : 'normal';
+    merged.onboardingDone = !!merged.onboardingDone;
 
     const rawBudgets = parseJson(merged.categoryBudgets, {});
     merged.categoryBudgets = Object.entries(rawBudgets).reduce((acc, [categoryId, amount]) => {
@@ -431,10 +449,16 @@ const FinanceDB = (() => {
   }
 
   function normalizeCategory(input = {}) {
+    const id = String(input.id || createId('cat')).trim();
+    const rawName = String(input.name || 'Categoria').trim().slice(0, 60);
     return {
-      id: String(input.id || createId('cat')).trim(),
-      name: String(input.name || 'Categoria').trim().slice(0, 60),
-      type: input.type === 'income' ? 'income' : 'expense'
+      id,
+      name: LEGACY_CATEGORY_NAMES.get(`${id}|${rawName}`) || rawName,
+      type: input.type === 'income' ? 'income' : 'expense',
+      // Los backups viejos no traen icono: se completa con el de fabrica.
+      icon: String(input.icon || DEFAULT_CATEGORY_ICONS.get(id) || '').trim().slice(0, 8),
+      archived: !!input.archived,
+      system: SYSTEM_CATEGORY_IDS.has(id)
     };
   }
 
@@ -2310,12 +2334,58 @@ const FinanceDB = (() => {
       if (!card) {
         throw new Error('La tarjeta elegida no existe.');
       }
-      await putMany(STORE_NAMES.transactions, buildInstallmentTransactions(record, card));
-    } else {
-      await putMany(STORE_NAMES.transactions, [record]);
+      const installments = buildInstallmentTransactions(record, card);
+      await putMany(STORE_NAMES.transactions, installments);
+      await syncFinanceEngine();
+      // Se devuelve una cuota real: borrarla borra la compra completa (sirve para "Deshacer").
+      return installments[0];
     }
+    await putMany(STORE_NAMES.transactions, [record]);
     await syncFinanceEngine();
     return record;
+  }
+
+  async function saveCategory(payload) {
+    await initDB();
+    const name = String(payload?.name || '').trim();
+    if (!name) {
+      throw new Error('Ponle un nombre a la categoria.');
+    }
+    const existing = payload.id ? await getOne(STORE_NAMES.categories, payload.id) : null;
+    const categories = await getCategories();
+    const duplicated = categories.find(
+      (item) =>
+        item.id !== existing?.id &&
+        !item.archived &&
+        item.type === (payload.type === 'income' ? 'income' : 'expense') &&
+        normalizeDescription(item.name) === normalizeDescription(name)
+    );
+    if (duplicated) {
+      throw new Error(`Ya tienes una categoria llamada "${duplicated.name}".`);
+    }
+    const record = normalizeCategory({ ...existing, ...payload, name });
+    await putMany(STORE_NAMES.categories, [record]);
+    return record;
+  }
+
+  /** Borra la categoria si nadie la usa; si tiene historial solo se oculta. */
+  async function deleteCategory(id) {
+    await initDB();
+    const existing = await getOne(STORE_NAMES.categories, id);
+    if (!existing) return { archived: false };
+    if (SYSTEM_CATEGORY_IDS.has(id)) {
+      throw new Error('Esta categoria la usa la app para pagos y aportes; no se puede quitar.');
+    }
+    const [transactions, recurring] = await Promise.all([getTransactions(), getRecurring()]);
+    const inUse =
+      transactions.some((item) => item.categoryId === id) ||
+      recurring.some((item) => item.categoryId === id);
+    if (inUse) {
+      await putMany(STORE_NAMES.categories, [normalizeCategory({ ...existing, archived: true })]);
+      return { archived: true };
+    }
+    await deleteOne(STORE_NAMES.categories, id);
+    return { archived: false };
   }
 
   async function deleteTransaction(id) {
@@ -2809,6 +2879,8 @@ const FinanceDB = (() => {
     saveDebt,
     saveRecurring,
     saveCard,
+    saveCategory,
+    deleteCategory,
     saveTransaction,
     deleteTransaction,
     deleteRecurring,

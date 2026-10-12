@@ -5,12 +5,14 @@ import { formatCurrency } from '../format.js';
 import { getAccountProjectionView } from '../metrics.js';
 import { getSnapshot } from '../state.js';
 
+const ACCOUNT_EMOJI = { cash: '💵', bank: '🏦', savings: '🐷' };
+
 export function renderAccounts() {
   const container = $('#accounts-grid');
   const { accounts, balances } = getSnapshot();
   const projection = getAccountProjectionView();
   if (!accounts.length) {
-    container.innerHTML = renderEmptyPanel('Aun no tienes cuentas', 'Crea una cuenta para empezar a distribuir tu dinero localmente.');
+    container.innerHTML = renderEmptyPanel('Aún no tienes cuentas', 'Crea una cuenta para empezar a distribuir tu dinero localmente.');
     return;
   }
 
@@ -23,23 +25,23 @@ export function renderAccounts() {
     <article class="panel-card">
       <div class="panel-card-header">
         <div>
-          <p class="eyebrow">Vista global</p>
-          <h4 class="panel-card-title">Patrimonio visible hoy</h4>
+          <p class="eyebrow">Todo tu dinero</p>
+          <h4 class="panel-card-title">Tienes hoy</h4>
         </div>
-        <span class="chip positive">${accounts.filter((account) => !account.archived).length} activas</span>
+        <span class="chip positive only-full">${accounts.filter((account) => !account.archived).length} activas</span>
       </div>
       <div class="balance-amount">${formatCurrency(visibleNetWorth)}</div>
-      <p class="panel-card-subtitle">Saldo real al dia de hoy en tus cuentas visibles.</p>
+      <p class="panel-card-subtitle">Sumando efectivo, bancos y ahorros.</p>
       ${hasDebt ? `
         <div class="networth-breakdown">
           ${netWorth.cardDebt > 0 ? `<span class="networth-line">Deuda de tarjetas <strong>-${escapeHtml(formatCurrency(netWorth.cardDebt))}</strong></span>` : ''}
           ${netWorth.otherDebt > 0 ? `<span class="networth-line">Otras deudas <strong>-${escapeHtml(formatCurrency(netWorth.otherDebt))}</strong></span>` : ''}
         </div>
         <div class="balance-amount ${netWorth.total < 0 ? 'negative' : ''}">${formatCurrency(netWorth.total)}</div>
-        <p class="panel-card-subtitle">Patrimonio neto real, ya descontando lo que debes.</p>
+        <p class="panel-card-subtitle">Lo que te quedaría si pagaras todo lo que debes.</p>
       ` : ''}
       ${projection.showProjection ? `
-        <div class="projection-box">
+        <div class="projection-box only-full">
           <span class="projection-label">${escapeHtml(projection.label)}</span>
           <strong class="projection-amount">${escapeHtml(formatCurrency(projectedVisibleNetWorth))}</strong>
         </div>
@@ -56,19 +58,19 @@ export function renderAccounts() {
         <article class="panel-card" data-account-id="${escapeHtml(account.id)}">
           <div class="panel-card-header">
             <div>
-              <h4 class="panel-card-title">${escapeHtml(account.name)}</h4>
+              <h4 class="panel-card-title"><span aria-hidden="true">${ACCOUNT_EMOJI[account.kind] || '🏦'}</span> ${escapeHtml(account.name)}</h4>
               <span class="panel-card-subtitle">${escapeHtml(ACCOUNT_KIND_LABELS[account.kind] || account.kind)}</span>
             </div>
-            <span class="chip ${account.archived ? 'warning' : 'positive'}">${account.archived ? 'Archivada' : 'Activa'}</span>
+            <span class="chip ${account.archived ? 'warning' : 'positive only-full'}">${account.archived ? 'Archivada' : 'Activa'}</span>
           </div>
           <div class="balance-amount">${formatCurrency(currentBalance)}</div>
           <p class="panel-card-subtitle">Disponible hoy</p>
-          <div class="chips-row">
+          <div class="chips-row only-full">
             <span class="chip">${account.includeInNetWorth ? 'Cuenta visible' : 'No suma patrimonio'}</span>
             <span class="chip">Inicial ${formatCurrency(account.openingBalance)}</span>
           </div>
           ${projection.showProjection ? `
-            <div class="projection-box">
+            <div class="projection-box only-full">
               <span class="projection-label">${escapeHtml(projection.label)}</span>
               <strong class="projection-amount">${escapeHtml(formatCurrency(projectedBalance))}</strong>
             </div>

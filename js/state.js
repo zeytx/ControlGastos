@@ -20,7 +20,8 @@ export const state = {
   },
   platform: {
     isIOS: false,
-    standalone: false
+    standalone: false,
+    canInstall: false
   }
 };
 
@@ -105,4 +106,17 @@ export function getSelectedCycleTransactions() {
 
 export function getTodayDate() {
   return FinanceDB.getToday();
+}
+
+/**
+ * Modo sencillo: oculta ciclos, conciliacion y demas piezas avanzadas.
+ * Sin preferencia guardada, arranca sencillo solo si aun no hay nada cargado,
+ * para no esconderle nada a quien ya usaba la app completa.
+ */
+export function isSimpleMode() {
+  const snapshot = getSnapshot();
+  const mode = snapshot.settings?.uiMode;
+  if (mode === 'simple') return true;
+  if (mode === 'full') return false;
+  return !snapshot.transactions.length && !snapshot.cards.length && !snapshot.recurring.length;
 }

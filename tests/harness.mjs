@@ -7,6 +7,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+// Fijar la zona aqui (y no con "TZ=... node" en el script) hace que los tests
+// corran igual en Windows, donde cmd no entiende esa sintaxis.
+process.env.TZ = process.env.TZ || 'America/Lima';
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 const INTERNALS = [
@@ -42,11 +46,13 @@ const INTERNALS = [
   'buildNetWorthHistory',
   'compareStatementMovements',
   'normalizeAccount',
-  'normalizeReconciliation'
+  'normalizeReconciliation',
+  'normalizeCategory'
 ];
 
 function loadEngine() {
-  const source = readFileSync(join(here, '..', 'db.js'), 'utf8');
+  // En Windows git puede dejar db.js con CRLF y el regex del hook no calzaria.
+  const source = readFileSync(join(here, '..', 'db.js'), 'utf8').replace(/\r\n/g, '\n');
   const patched = source.replace(
     /\n  return \{\n    initDB,/,
     `\n  return {\n    __internals: { ${INTERNALS.join(', ')} },\n    initDB,`

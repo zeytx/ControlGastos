@@ -8,33 +8,33 @@ export function renderInstallCard() {
   const card = $('#install-card');
   const copy = $('#install-copy');
   const settings = getSnapshot().settings;
-  const dismissed = !!settings.installPromptDismissedAt;
-  const hasData =
-    getSnapshot().transactions.length +
-    getSnapshot().goals.length +
-    getSnapshot().debts.length +
-    getSnapshot().recurring.length > 0;
+  const dismissedAt = settings.installPromptDismissedAt ? new Date(settings.installPromptDismissedAt) : null;
+  // "Ahora no" esconde la tarjeta una semana, no para siempre: instalarla es lo que mas ayuda.
+  const recentlyDismissed = dismissedAt && Date.now() - dismissedAt.getTime() < 7 * 86400000;
+  const hasData = getSnapshot().transactions.length > 0;
 
-  if (state.platform.standalone || dismissed) {
+  if (state.platform.standalone || recentlyDismissed) {
     card.classList.add('hidden');
     return;
   }
 
-  const installGuide = state.platform.isIOS
-    ? 'En iPhone usa Safari > Compartir > "Anadir a pantalla de inicio".'
-    : 'Instalala desde el navegador para que se sienta como app y quede mejor separada del resto de la navegacion.';
-  const extra = hasData
-    ? ' Si ya cargaste datos aqui en Safari, exporta JSON e importalo luego en la version instalada para no dividir tu informacion.'
-    : ' Te conviene instalarla antes de empezar a registrar mucho movimiento.';
+  const base = state.platform.canInstall
+    ? 'Un toque y queda como app en tu pantalla de inicio: abre al instante y funciona sin internet.'
+    : state.platform.isIOS
+      ? 'En Safari: Compartir > "Agregar a inicio". Queda como app y funciona sin internet.'
+      : 'Te mostramos cómo dejarla en tu pantalla de inicio, como cualquier app.';
+  const extra = hasData && state.platform.isIOS
+    ? ' Si ya anotaste cosas aquí, guarda una copia en Ajustes y ábrela luego en la app instalada.'
+    : '';
 
-  copy.textContent = `${installGuide}${extra}`;
+  copy.textContent = `${base}${extra}`;
+  $('#btn-install-card').textContent = state.platform.canInstall ? 'Instalar' : 'Ver cómo';
   card.classList.remove('hidden');
 }
 
 export function renderHeader() {
-  $('#header-subtitle').textContent = state.platform.standalone
-    ? 'Modo app activa. Tus datos viven aqui en este dispositivo.'
-    : 'Modo navegador. Instalala si quieres que se sienta como app local.';
+  const button = $('#btn-header-install');
+  if (button) button.classList.toggle('hidden', state.platform.standalone);
 }
 
 export function renderHero() {
@@ -61,7 +61,7 @@ export function renderHero() {
     const pct = Math.min(100, Math.round((elapsed / totalDays) * 100));
     const remaining = Math.max(0, totalDays - elapsed);
     $('#cycle-time-fill').style.width = `${pct}%`;
-    $('#cycle-progress-label').textContent = `Dia ${elapsed} de ${totalDays} (${remaining}d restantes)`;
+    $('#cycle-progress-label').textContent = `Día ${elapsed} de ${totalDays} (${remaining}d restantes)`;
     progressRow.style.display = '';
   } else {
     progressRow.style.display = 'none';
@@ -75,23 +75,23 @@ export function renderHero() {
   if (!config.primarySalaryRecurringId) {
     meta.textContent = 'Sin sueldo principal configurado';
     note.textContent = 'Elige el recurrente de ingreso que abre tu ciclo financiero.';
-    chips.innerHTML = '<span class="chip warning">Sin configuracion de ciclo</span>';
+    chips.innerHTML = '<span class="chip warning">Sin configuración de ciclo</span>';
     return;
   }
 
   const recurring = getRecurringMap().get(config.primarySalaryRecurringId);
   meta.textContent = recurring
-    ? `Sueldo principal: ${recurring.description} el dia ${recurring.dayOfMonth}`
+    ? `Sueldo principal: ${recurring.description} el día ${recurring.dayOfMonth}`
     : 'Sueldo principal configurado';
   note.textContent = cycle?.sweepTransferId
     ? `Este ciclo ya movio ${formatCurrency(cycle.sweptAmount || 0)} a ahorro al llegar el siguiente sueldo.`
-    : 'Cuando llegue el siguiente sueldo, el sobrante libre neto de este ciclo podra moverse a ahorro.';
+    : 'Cuando llegue el siguiente sueldo, el sobrante libre neto de este ciclo podrá moverse a ahorro.';
   chips.innerHTML = [
     config.savingsAccountId ? `<span class="chip">Ahorro destino: ${escapeHtml(getAccountLabel(config.savingsAccountId))}</span>` : '',
     config.sweepSourceAccountId ? `<span class="chip">Barrer desde: ${escapeHtml(getAccountLabel(config.sweepSourceAccountId))}</span>` : '',
     `<span class="chip ${config.savingsSweepEnabled ? 'positive' : 'warning'}">${
       config.savingsSweepEnabled
-        ? (config.savingsSweepMode === 'auto' ? 'Ahorro automatico' : 'Ahorro propuesto')
+        ? (config.savingsSweepMode === 'auto' ? 'Ahorro automático' : 'Ahorro propuesto')
         : 'Ahorro pausado'
     }</span>`
   ].join('');
@@ -120,7 +120,7 @@ export function renderBudgetProgress() {
       : `Te quedan ${formatCurrency(budget.remaining)} antes de tocar el tope de este ciclo.`;
   } else {
     globalRow.classList.add('hidden');
-    $('#budget-progress-meta').textContent = 'Topes por categoria';
+    $('#budget-progress-meta').textContent = 'Topes por categoría';
     $('#budget-progress-note').textContent = '';
   }
 
@@ -162,7 +162,7 @@ export function renderSweepSuggestion() {
   if (hasConfirmedSweep) {
     $('#sweep-suggestion-meta').textContent = formatCurrency(cycle.sweptAmount || 0);
     $('#sweep-suggestion-note').textContent = config.savingsSweepMode === 'auto'
-      ? 'La app registro este traslado automaticamente al cerrar el ciclo.'
+      ? 'La app registro este traslado automáticamente al cerrar el ciclo.'
       : `Ya registraste el traslado a ${getAccountLabel(config.savingsAccountId) || 'tu cuenta de ahorro'}.`;
     confirmButton.classList.add('hidden');
     undoButton.classList.toggle('hidden', config.savingsSweepMode === 'auto');
@@ -170,7 +170,7 @@ export function renderSweepSuggestion() {
   }
 
   $('#sweep-suggestion-meta').textContent = formatCurrency(suggested);
-  $('#sweep-suggestion-note').textContent = `Esto es lo que te sobro libre despues de cubrir tarjetas y deudas del ciclo. Si ya lo moviste a ${getAccountLabel(config.savingsAccountId) || 'tu cuenta de ahorro'}, registralo aqui.`;
+  $('#sweep-suggestion-note').textContent = `Esto es lo que te sobró libre después de cubrir tarjetas y deudas del ciclo. Si ya lo moviste a ${getAccountLabel(config.savingsAccountId) || 'tu cuenta de ahorro'}, regístralo aquí.`;
   confirmButton.classList.remove('hidden');
   undoButton.classList.add('hidden');
 }
@@ -183,7 +183,7 @@ export function renderCycleHistory() {
   const currentIndex = cycles.findIndex((cycle) => cycle.id === state.selectedCycleId);
 
   if (!cycles.length) {
-    fillSelect(select, [{ value: '', label: 'Sin ciclos aun' }], '');
+    fillSelect(select, [{ value: '', label: 'Sin ciclos aún' }], '');
     select.disabled = true;
     prevButton.disabled = true;
     nextButton.disabled = true;
@@ -202,6 +202,13 @@ export function renderCycleHistory() {
   select.disabled = false;
   prevButton.disabled = currentIndex === -1 || currentIndex >= cycles.length - 1;
   nextButton.disabled = currentIndex <= 0;
+
+  // Mismo selector, version compacta en Movimientos.
+  const selected = cycles[currentIndex] || null;
+  $('#movs-period-label').textContent = selected ? formatCycleLabel(selected) : 'Todos';
+  $('#movs-period-range').textContent = selected ? formatCycleRange(selected) : '';
+  $('#btn-movs-prev').disabled = prevButton.disabled;
+  $('#btn-movs-next').disabled = nextButton.disabled;
 }
 
 export function renderAlerts() {
@@ -218,7 +225,7 @@ export function renderAlerts() {
     container.innerHTML = `
       <div class="alert-item info">
         <strong>Todo en orden</strong>
-        <span>No hay alertas urgentes y tu backup esta al dia.</span>
+        <span>No hay alertas urgentes y tu backup está al día.</span>
       </div>
     `;
     return;
@@ -245,7 +252,7 @@ export function renderCycleConfigPreview() {
   if (!recurring) {
     body.innerHTML = `
       <div class="detail-card">
-        <strong>Ciclo aun no configurado</strong>
+        <strong>Ciclo aún no configurado</strong>
         <p>Necesitas elegir un recurrente de ingreso como sueldo principal para que la app se mueva por ciclos y no por meses calendario.</p>
       </div>
     `;
@@ -255,7 +262,7 @@ export function renderCycleConfigPreview() {
   body.innerHTML = `
     <div class="detail-card">
       <strong>Sueldo que abre el ciclo</strong>
-      <p>${escapeHtml(recurring.description)} el dia ${escapeHtml(recurring.dayOfMonth)}</p>
+      <p>${escapeHtml(recurring.description)} el día ${escapeHtml(recurring.dayOfMonth)}</p>
     </div>
     <div class="detail-card">
       <strong>Sobrante a ahorro</strong>
